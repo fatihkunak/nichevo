@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Nichevo X Okuyucu",
+  "version": "1.0.0",
+  "description": "Nichevo web uygulamasının X (Twitter) sayfalarını senin tarayıcında, senin oturumunla OKUMASINI sağlar. Beğenme, takip, paylaşma yok.",
+  "permissions": ["scripting"],
+  "host_permissions": ["https://x.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["https://nichevo.fatihgo.com/*", "http://localhost:8081/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
