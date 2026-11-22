@@ -7,8 +7,12 @@ export interface Config {
   google?: { clientId: string; clientSecret: string; publicUrl: string };
   /** SOCIAL_ALLOWED_EMAILS (virgülle) boşsa sosyal tarama tamamen kapalıdır */
   social?: { allowedEmails: string[]; profilesDir?: string; channel: string; refreshHours: number };
-  /** EVREN_API_KEY + izin listesi (AI_ALLOWED_EMAILS, yoksa SOCIAL_ALLOWED_EMAILS) varsa sunucu üzerinden yapay zekâ açıktır */
-  ai?: { apiKey: string; baseUrl: string; allowedEmails: string[] };
+  /**
+   * AI_API_KEY (eski ad: EVREN_API_KEY) + izin listesi (AI_ALLOWED_EMAILS, yoksa SOCIAL_ALLOWED_EMAILS) varsa sunucu
+   * üzerinden yapay zekâ açıktır. Herhangi bir OpenAI uyumlu uç nokta olabilir (AI_BASE_URL); AI_MODEL doluysa
+   * istemcinin istediği model yok sayılır ve bu model kullanılır.
+   */
+  ai?: { apiKey: string; baseUrl: string; allowedEmails: string[]; model?: string; provider: string };
 }
 
 const need = (env: NodeJS.ProcessEnv, k: string): string => {
@@ -32,11 +36,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
   const aiAllowed = aiEmails.length ? aiEmails : allowedEmails;
-  const evrenKey = env.EVREN_API_KEY?.trim();
+  // Yeni adlar öncelikli; EVREN_* geri uyumluluk için çalışmaya devam eder.
+  const aiKey = (env.AI_API_KEY ?? env.EVREN_API_KEY)?.trim();
+  const aiBaseUrl = (env.AI_BASE_URL ?? env.EVREN_BASE_URL)?.trim() || "https://evren-llmapi.ssyz.org.tr/v1";
+  const aiModel = env.AI_MODEL?.trim();
+  if (aiModel && !/^[A-Za-z0-9._\/:-]{1,64}$/.test(aiModel)) throw new Error("AI_MODEL geçersiz karakter içeriyor");
   return {
     ai:
-      evrenKey && aiAllowed.length
-        ? { apiKey: evrenKey, baseUrl: env.EVREN_BASE_URL?.trim() || "https://evren-llmapi.ssyz.org.tr/v1", allowedEmails: aiAllowed }
+      aiKey && aiAllowed.length
+        ? {
+            apiKey: aiKey,
+            baseUrl: aiBaseUrl,
+            allowedEmails: aiAllowed,
+            model: aiModel || undefined,
+            provider: env.AI_PROVIDER_NAME?.trim() || (/evren/i.test(aiBaseUrl) ? "evren" : "custom"),
+          }
         : undefined,
     social: allowedEmails.length
       ? {

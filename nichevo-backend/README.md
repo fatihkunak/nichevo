@@ -54,7 +54,16 @@ npm run social:login -- x            # ya da instagram: elle giriş penceresi (T
 **Bilinen sınırlar:** Sayfa yapıları değişebilir; okuyucular kırılırsa `PARSE` hatası verir. WebView ile X okuması cihazda gerçek hesapla uçtan uca doğrulanmadı (betikler gerçek Chrome'da sahte X sayfalarına karşı test edildi). Telefon uygulaması `react-native-webview` içerdiği için yeni APK derlemesi gerekir.
 
 ## Sunucu üzerinden yapay zekâ (EVREN LLM, anahtarsız)
-Opsiyonel. `.env`'de `EVREN_API_KEY=...` ve izin listesi (`AI_ALLOWED_EMAILS`, yoksa `SOCIAL_ALLOWED_EMAILS`) varsa sunucu, uygulamaya **anahtarsız** yapay zekâ sunar: anahtar yalnızca sunucuda durur, cihaza girilmez/gönderilmez. Uygulamada Profil > Yapay Zeka > "Nichevo sunucusu (EVREN LLM, anahtarsız)" seçilir.
+Opsiyonel. `.env`'de `AI_API_KEY=...` (eski ad `EVREN_API_KEY` de çalışır) ve izin listesi (`AI_ALLOWED_EMAILS`, yoksa `SOCIAL_ALLOWED_EMAILS`) varsa sunucu, uygulamaya **anahtarsız** yapay zekâ sunar: anahtar yalnızca sunucuda durur, cihaza girilmez/gönderilmez. Uygulamada Profil > Yapay Zeka > "Nichevo sunucusu (EVREN LLM, anahtarsız)" seçilir.
+
+**Sağlayıcı değiştirme (EVREN ücretsiz süresi 1 Aralık 2026'da bitiyor):** sunucu herhangi bir OpenAI uyumlu `/chat/completions` uç noktasına bağlanır; kod değişmez, yalnızca `.env`:
+```
+AI_BASE_URL=http://localhost:20128/v1   # örn. OmniRoute
+AI_API_KEY=...                           # sağlayıcının anahtarı
+AI_MODEL=coding                          # doluysa istemcinin model isteği yok sayılır (uygulama EVREN'e özgü qwen3.8-flash-next gönderiyor)
+AI_PROVIDER_NAME=omniroute               # isteğe bağlı, yalnızca /v1/ai/status'ta görünür
+```
+Sunucu anahtarı hem `X-API-Key` (EVREN) hem `Authorization: Bearer` (OpenAI uyumlular) olarak gönderir. OmniRoute `coding` combo'su gerçek istekle doğrulandı (23 Kas 2026). `.env` değişince sunucuyu yeniden başlat; yalnızca kendi sürecini durdur.
 | Uç nokta | Açıklama |
 |---|---|
 | `GET /v1/ai/status` | `{enabled, provider, defaultModel}` (izinsiz hesaba `enabled:false`) |

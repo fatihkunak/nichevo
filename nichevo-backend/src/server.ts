@@ -14,7 +14,7 @@ const social = cfg.social && driver ? { service: new SocialService(pool, driver)
 
 const app = buildApp({ pool, jwtSecret: cfg.jwtSecret, logger: true, google: cfg.google,
   social,
-  ai: cfg.ai ? { config: { apiKey: cfg.ai.apiKey, baseUrl: cfg.ai.baseUrl }, allowedEmails: cfg.ai.allowedEmails } : undefined,
+  ai: cfg.ai ? { config: { apiKey: cfg.ai.apiKey, baseUrl: cfg.ai.baseUrl, model: cfg.ai.model, provider: cfg.ai.provider }, allowedEmails: cfg.ai.allowedEmails } : undefined,
 });
 
 // Takip listesi otomatik yenileme: yarım saatte bir bakar, kayıt `refreshHours`'tan eskiyse sırayla (aralarda 20-60 sn) yeniler

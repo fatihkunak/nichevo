@@ -78,7 +78,7 @@ describe("sunucu üzerinden EVREN", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe("https://evren.example/v1/chat/completions"); // sondaki / temizlenir
     expect(calls[0]!.headers["x-api-key"]).toBe(KEY);
-    expect(calls[0]!.headers["authorization"]).toBeUndefined();
+    expect(calls[0]!.headers["authorization"]).toBe(`Bearer ${KEY}`); // OpenAI uyumlu sağlayıcılar için
     expect(calls[0]!.body).toMatchObject({
       model: "gemma-4-31b",
       max_tokens: 512,
@@ -158,6 +158,22 @@ describe("sunucu üzerinden EVREN", () => {
     for (let i = 0; i < 61; i++) last = (await chat(t, MSG)).statusCode;
     expect(last).toBe(429);
     expect(calls).toHaveLength(60);
+  });
+
+  it("AI_MODEL sabitliyse istemcinin model isteği yok sayılır; status sağlayıcıyı ve modeli bildirir", async () => {
+    await app.close();
+    app = buildApp({
+      pool: appPool,
+      jwtSecret: JWT,
+      ai: { config: { apiKey: KEY, baseUrl: "http://localhost:20128/v1", model: "coding", provider: "omniroute" }, allowedEmails: [ME.email], fetchImpl: fakeFetch },
+    });
+    const t = await reg(ME);
+    const r = await chat(t, { ...MSG, model: "qwen3.8-flash-next" });
+    expect(r.statusCode).toBe(200);
+    expect(calls[0]!.body.model).toBe("coding");
+    expect(calls[0]!.url).toBe("http://localhost:20128/v1/chat/completions");
+    const st = await app.inject({ method: "GET", url: "/v1/ai/status", headers: { authorization: `Bearer ${t}` } });
+    expect(st.json()).toMatchObject({ enabled: true, provider: "omniroute", defaultModel: "coding" });
   });
 
   it("yapılandırılmamışsa uçlar yok (404)", async () => {

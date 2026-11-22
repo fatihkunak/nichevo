@@ -6,8 +6,12 @@ import { z } from "zod";
 
 export interface AiConfig {
   apiKey: string;
-  /** Varsayılan: https://evren-llmapi.ssyz.org.tr/v1 */
+  /** OpenAI uyumlu taban adres. Varsayılan: https://evren-llmapi.ssyz.org.tr/v1 */
   baseUrl: string;
+  /** Doluysa istemcinin model isteği yok sayılır (sağlayıcı değişince eski model adları kırılmasın) */
+  model?: string;
+  /** Yalnızca /v1/ai/status'ta gösterilir */
+  provider?: string;
 }
 
 export interface AiRouteDeps {
@@ -53,7 +57,11 @@ export function registerAiRoutes(app: FastifyInstance, deps: AiRouteDeps) {
   const fail = (reply: FastifyReply, status: number, code: string, message: string) => reply.code(status).send({ error: { code, message } });
   const emailOf = (req: FastifyRequest) => String((req as FastifyRequest & { user?: { email: string } }).user?.email ?? "").toLowerCase();
 
-  app.get("/v1/ai/status", { preHandler: authenticate }, async (req) => ({ enabled: allowedEmails.has(emailOf(req)), provider: "evren", defaultModel: "auto" }));
+  app.get("/v1/ai/status", { preHandler: authenticate }, async (req) => ({
+    enabled: allowedEmails.has(emailOf(req)),
+    provider: ai.provider ?? "evren",
+    defaultModel: ai.model ?? "auto",
+  }));
 
   app.post("/v1/ai/chat", { preHandler: authenticate, bodyLimit: 256 * 1024 }, async (req, reply) => {
     if (reply.sent) return;
@@ -66,9 +74,10 @@ export function registerAiRoutes(app: FastifyInstance, deps: AiRouteDeps) {
     try {
       const resp = await doFetch(`${ai.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-api-key": ai.apiKey },
+        // EVREN X-API-Key bekler, OpenAI uyumlu çoğu sağlayıcı (OmniRoute, OpenRouter...) Bearer; ikisi de gider.
+        headers: { "content-type": "application/json", "x-api-key": ai.apiKey, authorization: `Bearer ${ai.apiKey}` },
         body: JSON.stringify({
-          model: b.model ?? "auto",
+          model: ai.model ?? b.model ?? "auto",
           max_tokens: b.maxTokens ?? 2048,
           stream: false,
           messages: [
@@ -91,7 +100,7 @@ export function registerAiRoutes(app: FastifyInstance, deps: AiRouteDeps) {
         const length = json?.choices?.[0]?.finish_reason === "length";
         return fail(reply, 502, "AI_EMPTY", length ? "Yanıt token sınırına takıldı (model önce düşünüyor olabilir)." : "Yapay zekâ boş yanıt verdi.");
       }
-      return { text: out.trim(), model: typeof json?.model === "string" ? json.model.slice(0, 64) : b.model ?? "auto" };
+      return { text: out.trim(), model: typeof json?.model === "string" ? json.model.slice(0, 64) : ai.model ?? b.model ?? "auto" };
     } catch (e) {
       if ((e as Error).name === "AbortError") return fail(reply, 504, "AI_TIMEOUT", "Yapay zekâ servisi zamanında yanıt vermedi.");
       return fail(reply, 502, "AI_UPSTREAM", `Yapay zekâ servisine ulaşılamadı: ${redact(String((e as Error).message), ai.apiKey)}`);
