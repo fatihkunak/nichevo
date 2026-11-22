@@ -27,6 +27,40 @@ API anahtarları (YouTube/AI sağlayıcıları) **cihazda kalır**, sunucuya hi�
 
 Oturum: 15 dk'lık erişim jetonu (HS256 JWT, `token_version` ile iptal edilebilir) + 60 gün'lük döndürülen yenileme jetonu (DB'de yalnızca SHA-256 özeti). Parolalar Node'un yerleşik `scrypt`'i ile (N=2¹⁵).
 
+## Sosyal tarama (X + Instagram, yalnızca okuma)
+Opsiyonel. `.env`'de `SOCIAL_ALLOWED_EMAILS=hesap@ornek.com` (virgülle birden çok) **boşsa özellik tamamen kapalıdır** (`/v1/social/*` kayıtlı bile olmaz). Listedeki hesaplar dışındakiler `GET /v1/social/status` ile `{enabled:false}` görür, diğer uçlar 403 verir.
+
+Nasıl çalışır: sunucu makinesindeki **test hesabı** oturumuyla (Chrome kalıcı profili, `.social-profile/`, git'e girmez) gizli Chrome gezdirir. Beğenme/takip/paylaşma/mesaj YOK. Tüm işlemler tek sırada, aralarında rastgele bekleme; arama 30 dk, trend 1 saat önbelleklenir; kullanıcı başına saatlik sınırlar var.
+```powershell
+powershell -File deploy/install-social-login-tasks.ps1   # bir kez: uygulamadaki "Giriş yap" düğmesi masaüstünde pencere açabilsin
+npm run social:login -- x            # ya da instagram: elle giriş penceresi (TEST hesabıyla gir, ana hesabınla DEĞİL)
+```
+| Uç nokta | Açıklama |
+|---|---|
+| `GET /v1/social/status` | `{enabled, platforms:{x,instagram}:{connected, handle?, since?, loginInProgress}}` |
+| `POST /v1/social/:platform/login` · `DELETE /v1/social/:platform/session` | Giriş penceresini aç / oturumu sil |
+| `GET /v1/social/search?platform&kind=posts\|accounts\|hashtags&q&mode=top\|latest` | Niş araması |
+| `GET /v1/social/trends?platform&q` | Hashtag + en çok etkileşim alan gönderiler |
+| `GET/POST /v1/social/watch` · `DELETE /v1/social/watch/:id` · `POST /v1/social/watch/:id/refresh` | Takip listesi (en fazla 25), profil anlık görüntüleri, gönderiler. `SOCIAL_REFRESH_HOURS` (varsayılan 12) saatte bir otomatik yenilenir |
+| `GET /v1/social/digest` | Asistanın okuduğu düz metin özet |
+
+**X nasıl okunuyor:** X, otomatik (headless) Chrome'a her sayfada 403 veriyor (giriş sayfası dahil), bu yüzden sunucu X'i okumaz (`BLOCKED`); engeli aşmaya yönelik bir önlem YOK ve eklenmeyecek. Bunun yerine **telefon uygulaması X'i kendi tarayıcısıyla (WebView) okur**: kullanıcı görünür pencerede kendi hesabıyla giriş yapar, uygulama sayfayı okur ve sonucu sunucuya yollar:
+- `POST /v1/social/watch/:id/ingest` `{profile}`: takip kaydına profil anlık görüntüsü + gönderiler yazar (platform/kullanıcı adı kayıtla eşleşmeli).
+- `POST /v1/social/trends/ingest` `{platform, q, data}`: trend verisini önbelleğe yazar (asistan özetine girer).
+İstemciden gelen veri güvenilmez sayılır: tüm alanlar zod ile sınırlı (uzunluk, sayı aralığı, yalnızca x.com/instagram.com bağlantıları, geçerli tarih, en fazla 30 gönderi). Web uygulamasında X yoktur (tarayıcı güvenlik modeli x.com'u okumaya izin vermez); web'de yalnızca Instagram çalışır. Okuma seçicileri `shared/x-dom.ts` içinde, backend ve uygulama aynı kodu kullanır.
+
+**Instagram (23 Kas 2026 canlı testi, gerçek test hesabıyla):** profil takibi çalışır (takipçi/takip/gönderi sayısı `og:description` meta etiketinden, gönderi bağlantıları sayfadan) ve anahtar kelime gönderi araması çalışır (`/explore/search/keyword/`); ikisinde de beğeni/yorum sayısı ve çoğu zaman yazar bilgisi YOKTUR. Hesap araması ve hashtag araması çalışmaz: Instagram `topsearch` uç noktasını kapattı (kendi web uygulamasının isteği de 404 alıyor) ve hashtag sayfalarını anahtar kelime aramasına yönlendirdi; bunlar `PARSE` ("desteklenmiyor") olarak bildirilir.
+
+**Bilinen sınırlar:** Sayfa yapıları değişebilir; okuyucular kırılırsa `PARSE` hatası verir. WebView ile X okuması cihazda gerçek hesapla uçtan uca doğrulanmadı (betikler gerçek Chrome'da sahte X sayfalarına karşı test edildi). Telefon uygulaması `react-native-webview` içerdiği için yeni APK derlemesi gerekir.
+
+## Sunucu üzerinden yapay zekâ (EVREN LLM, anahtarsız)
+Opsiyonel. `.env`'de `EVREN_API_KEY=...` ve izin listesi (`AI_ALLOWED_EMAILS`, yoksa `SOCIAL_ALLOWED_EMAILS`) varsa sunucu, uygulamaya **anahtarsız** yapay zekâ sunar: anahtar yalnızca sunucuda durur, cihaza girilmez/gönderilmez. Uygulamada Profil > Yapay Zeka > "Nichevo sunucusu (EVREN LLM, anahtarsız)" seçilir.
+| Uç nokta | Açıklama |
+|---|---|
+| `GET /v1/ai/status` | `{enabled, provider, defaultModel}` (izinsiz hesaba `enabled:false`) |
+| `POST /v1/ai/chat` | `{system?, messages:[{role:user\|model, text}], model?, maxTokens?}` → `{text, model}` |
+İzin listesi dışı 403; kullanıcı başına saatlik 60 istek; en fazla 30 mesaj, 12 bin karakter/mesaj, 4096 token; üst servis hata gövdesi anahtarı yansıtsa bile `***` ile temizlenir. Gerçek EVREN'de doğrulandı (23 Kas 2026): `auto` yönlendirmesi bazen yavaş görsel modele (`qwen3-vl-30b`, ~45 sn) düşer; varsayılan `qwen3.8-flash-next` (~15-18 sn, düşünen model). Yanıtlar 15-45 sn sürebilir, uygulama isteği 100 sn bekler.
+
 ## Kurulum (bir kez)
 ```bash
 # 1) Postgres konteyneri (yeniden başlatmada otomatik kalkar, yalnızca 127.0.0.1)

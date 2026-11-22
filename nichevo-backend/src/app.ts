@@ -10,6 +10,9 @@ import {
   type GoogleConfig,
 } from "./google.js";
 import { dummyVerify, hashPassword, verifyPassword } from "./password.js";
+import { registerAiRoutes, type AiConfig } from "./ai.js";
+import { registerSocialRoutes } from "./social/routes.js";
+import type { SocialService } from "./social/service.js";
 import {
   ACCESS_TTL_SEC,
   REFRESH_TTL_SEC,
@@ -108,9 +111,13 @@ export interface AppOptions {
   now?: () => number;
   /** Tanımlı değilse Google uç noktaları 503 döner ve istemci düğmeyi göstermez */
   google?: GoogleConfig;
+  /** Tanımlı değilse /v1/social/* hiç kaydedilmez (404). allowedEmails: küçük harfli izin listesi */
+  social?: { service: SocialService; allowedEmails: string[] };
+  /** Tanımlı değilse /v1/ai/* kayıtlı değildir. fetchImpl yalnızca testler içindir. */
+  ai?: { config: AiConfig; allowedEmails: string[]; fetchImpl?: typeof fetch };
 }
 
-export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, google }: AppOptions): FastifyInstance {
+export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, google, social, ai }: AppOptions): FastifyInstance {
   const app = Fastify({
     logger: logger ? { level: "info", redact: ["req.headers.authorization"] } : false,
     bodyLimit: 16 * 1024,
@@ -329,6 +336,25 @@ export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, goog
     if (!user) return fail(reply, 401, "UNAUTHORIZED", "Oturum geçersiz");
     return issueSession(user, req);
   });
+
+  if (social) {
+    registerSocialRoutes(app, {
+      service: social.service,
+      allowedEmails: new Set(social.allowedEmails.map((e) => e.toLowerCase())),
+      authenticate,
+      now,
+    });
+  }
+
+  if (ai) {
+    registerAiRoutes(app, {
+      ai: ai.config,
+      allowedEmails: new Set(ai.allowedEmails.map((e) => e.toLowerCase())),
+      authenticate,
+      now,
+      fetchImpl: ai.fetchImpl,
+    });
+  }
 
   app.get("/v1/me", { preHandler: authenticate }, async (req) => ({ user: publicUser(req.user!) }));
 

@@ -3,3 +3,6 @@ node_modules/
 .env.*
 !.env.example
 *.log
+
+# Sosyal tarama: test hesaplarının tarayıcı oturumu (çerezler) — ASLA repoya girmez
+.social-profile/
