@@ -6,6 +6,7 @@ import {
   AiError,
   PROVIDERS,
   authHeaders,
+  baseUrlEditable,
   chat,
   chatUrl,
   check,
@@ -16,6 +17,7 @@ import {
   redact,
   requestBody,
   resolve,
+  setServerTransport,
   type AiConfig,
 } from "../lib/ai-providers";
 
@@ -27,13 +29,45 @@ const cfg = (provider: string, over: Partial<AiConfig> = {}, key = "sk-test-1234
   ...over,
 });
 
+describe("sunucu sağlayıcısı (anahtarsız, Nichevo sunucusu üzerinden)", () => {
+  const cfg = { provider: "server", model: "", baseUrl: "", apiKeys: {} };
+  it("anahtar/adres olmadan kimlik çözer, varsayılan model hızlı flash modeli", () => {
+    const c = resolve(cfg);
+    expect(c.info.server).toBe(true);
+    expect(c.apiKey).toBe("");
+    expect(c.model).toBe("qwen3.8-flash-next");
+    expect(getProvider("server")?.needsKey).toBe(false);
+    expect(baseUrlEditable(c.info)).toBe(false);
+  });
+  it("sohbet taşıyıcıya gider (istemci doğrudan ağa çıkmaz); taşıyıcı yoksa anlaşılır hata", async () => {
+    const c = resolve({ ...cfg, model: "gemma-4-31b" });
+    setServerTransport(null);
+    await expect(chat(c, "sys", [{ role: "user", text: "x" }])).rejects.toMatchObject({ code: "NO_PROVIDER" });
+    const seen: unknown[] = [];
+    setServerTransport({
+      async chat(system, turns, model, maxTokens) {
+        seen.push({ system, turns, model, maxTokens });
+        return "sunucudan";
+      },
+    });
+    expect(await chat(c, "sys", [{ role: "user", text: "x" }], 512)).toBe("sunucudan");
+    expect(seen).toEqual([{ system: "sys", turns: [{ role: "user", text: "x" }], model: "gemma-4-31b", maxTokens: 512 }]);
+    setServerTransport(null);
+  });
+  it("model listesi statik ve auto içerir", async () => {
+    expect(await listModels(resolve(cfg))).toContain("auto");
+  });
+});
+
 describe("sağlayıcı kaydı", () => {
   it("kimlikler benzersiz, adresler https (yerel grup hariç)", () => {
     const ids = PROVIDERS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const p of PROVIDERS) {
       if (p.baseUrl) expect(p.baseUrl.startsWith("https://") || p.group === "local").toBe(true);
-      expect(p.needsKey).toBe(p.group !== "local");
+      // Sunucu sağlayıcısı: anahtar gerekmez (sunucu EVREN'e kendi anahtarıyla bağlanır), adresi yok
+      expect(p.needsKey).toBe(p.server ? false : p.group !== "local");
+      if (p.server) expect(p.baseUrl).toBeUndefined();
     }
     expect(getProvider("custom")).toBeDefined();
     expect(getProvider("yok")).toBeUndefined();
@@ -124,6 +158,18 @@ describe("istek biçimleri", () => {
       "gemini-x",
     ]);
     expect(parseModelList({ error: "x" })).toEqual([]);
+    // EVREN: sohbet dışı görevler (ocr/tts/embedding…) elenir, task alanı olmayanlar kalır
+    expect(
+      parseModelList({
+        data: [
+          { id: "auto", task: "chat" },
+          { id: "qwen3-vl-30b", task: "vision_chat" },
+          { id: "voxcpm2", task: "tts" },
+          { id: "dots-ocr", task: "ocr" },
+          { id: "plain" },
+        ],
+      }),
+    ).toEqual(["auto", "plain", "qwen3-vl-30b"]);
   });
 
   it("redact anahtarı gizler", () => {

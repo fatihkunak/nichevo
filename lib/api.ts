@@ -57,10 +57,10 @@ export async function clearTokens() {
 }
 
 // --- HTTP ---
-async function raw<T>(path: string, init: { method: string; body?: unknown; token?: string | null }): Promise<T> {
+async function raw<T>(path: string, init: { method: string; body?: unknown; token?: string | null; timeoutMs?: number }): Promise<T> {
   if (!apiConfigured()) throw new ApiError("NO_SERVER", "Sunucu adresi ayarlı değil");
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  const timer = setTimeout(() => ctrl.abort(), init.timeoutMs ?? 15_000);
   let res: Response;
   try {
     res = await fetch(`${RAW}${path}`, {
@@ -110,17 +110,20 @@ async function refreshSession(): Promise<boolean> {
   return refreshing;
 }
 
-async function authed<T>(path: string, method: string, body?: unknown): Promise<T> {
+async function authed<T>(path: string, method: string, body?: unknown, timeoutMs?: number): Promise<T> {
   const token = await getItem(K_ACCESS);
   try {
-    return await raw<T>(path, { method, body, token });
+    return await raw<T>(path, { method, body, token, timeoutMs });
   } catch (e) {
     if (e instanceof ApiError && e.status === 401 && (await refreshSession())) {
-      return raw<T>(path, { method, body, token: await getItem(K_ACCESS) });
+      return raw<T>(path, { method, body, token: await getItem(K_ACCESS), timeoutMs });
     }
     throw e;
   }
 }
+
+/** Diğer modüllerin (ör. lib/social.ts) yetkili istek yapması için; 401'de jeton yenilemeyi kendisi yapar. */
+export const authedRequest = authed;
 
 // --- uç noktalar ---
 export async function register(b: { email: string; password: string; name: string; channelName?: string }) {

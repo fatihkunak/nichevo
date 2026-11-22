@@ -1,16 +1,24 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
 
 import { Chip, ScreenHeader } from "@/components/nv";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { ASSISTANT_SYSTEM, aiChat, aiStatus, type ChatTurn } from "@/lib/ai";
+import { loadSocialDigest } from "@/lib/social";
+import { buildSocialSystem } from "@/lib/social-format";
 import { bumpUsage } from "@/lib/usage";
 
 const QUICK = [
   "Bu video için başlık önerir misin?",
   "En iyi yayınlama zamanı ne?",
   "Nişimi nasıl büyütürüm?",
+];
+
+// Sosyal veri (Sosyal sekmesindeki takip listesi + trendler) varsa gösterilen ek sorular
+const SOCIAL_QUICK = [
+  "Takip ettiğim hesaplar son zamanlarda ne paylaşmış?",
+  "Bu verilere göre hangi hashtag'leri kullanmalıyım?",
 ];
 
 // Modeller Markdown döndürür; düz Text bileşeni için işaretleri temizle
@@ -23,6 +31,17 @@ export default function AssistantScreen() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const listRef = useRef<FlatList<ChatTurn>>(null);
+  // Sosyal veri: sunucuda takip/trend verisi varsa asistan onu okuyabilir (kapatılabilir)
+  const [hasSocial, setHasSocial] = useState(false);
+  const [socialOn, setSocialOn] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    loadSocialDigest(true).then((d) => alive && setHasSocial(!!d));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const send = async (msg: string) => {
     const content = msg.trim();
@@ -40,7 +59,8 @@ export default function AssistantScreen() {
     }
     setBusy(true);
     try {
-      const reply = await aiChat(ASSISTANT_SYSTEM, next);
+      const digest = socialOn ? await loadSocialDigest() : null;
+      const reply = await aiChat(buildSocialSystem(ASSISTANT_SYSTEM, digest), next);
       setTurns([...next, { role: "model", text: reply }]);
       bumpUsage("chats");
     } catch (e) {
@@ -68,10 +88,15 @@ export default function AssistantScreen() {
               <View className="mb-2">
                 <Text className="text-muted text-[12px] mb-2">Hızlı sorular</Text>
                 <View className="flex-row flex-wrap">
-                  {QUICK.map((q) => (
+                  {[...QUICK, ...(hasSocial && socialOn ? SOCIAL_QUICK : [])].map((q) => (
                     <Chip key={q} label={q} onPress={() => send(q)} />
                   ))}
                 </View>
+                {hasSocial ? (
+                  <View className="flex-row mt-1">
+                    <Chip label={socialOn ? "Sosyal veri: açık" : "Sosyal veri: kapalı"} active={socialOn} onPress={() => setSocialOn((v) => !v)} />
+                  </View>
+                ) : null}
               </View>
             ) : null
           }

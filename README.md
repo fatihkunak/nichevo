@@ -24,15 +24,16 @@ Görüntüler Android uygulamasından alındı; Pano ve Keşif'teki veriler ger�
 
 ## Ne yapar
 
-Uygulamanın beş sekmesi var:
+Uygulamanın altı sekmesi var:
 
 | Sekme | İş |
 |---|---|
 | **Pano** | Türkiye'de öne çıkan konular, kanal skoru (0-100), büyüme ipucu ve **niş × format rekabet ısı haritası** |
 | **Keşif** | **Yükselen nişler** ve kanal taraması: arama terimi, kanal yaşı, abone aralığı, aykırı değer eşiği; her kanalda abone, izlenme, yaş ve izlenme/abone oranı |
+| **Sosyal** | X ve Instagram taraması (yalnızca okuma; X telefonun kendi tarayıcısıyla, Instagram sunucudaki test hesabı oturumuyla): niş araması, rakip hesap takibi ve değişim geçmişi, trend hashtag. Yalnızca izinli hesaplara açık; kurulum ve sınırlar `nichevo-backend/README.md` içinde. Asistan bu veriyi okuyabilir |
 | **Planlama** | Haftalık takvim, fikir oluşturucu ve nişini ile konunu verince 6 aşamalı çekim planı (PDF olarak paylaşılır) |
 | **Analiz** | YouTube bağlantısından video analizi: izlenme, beğeni, etkileşim, görüntülenme tahmini, yorumların duygu dağılımı, anahtar kelime performansı, sahne yoğunluğu |
-| **Asistan** | Seçtiğin yapay zekâ sağlayıcısıyla sohbet |
+| **Asistan** | Seçtiğin yapay zekâ sağlayıcısıyla sohbet; Sosyal sekmesinde veri varsa onu da okuyabilir (açma/kapama düğmesi var) |
 
 Hesap: e-posta ve şifreyle ya da **Google ile giriş**; tarayıcıda ve telefonda aynı hesap. Arayüz şu an yalnızca Türkçe (profildeki dil tercihi kaydedilir, çeviri yok).
 

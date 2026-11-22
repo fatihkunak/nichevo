@@ -5,6 +5,7 @@ import { FlatList, Linking, Modal, Pressable, Text, TextInput, View } from "reac
 import { Field } from "@/components/field";
 import { Card, GradientButton } from "@/components/nv";
 import { useColors } from "@/hooks/use-colors";
+import "@/lib/ai-server"; // sunucu sağlayıcısının taşıyıcısını kaydeder
 import { loadAiConfig, saveAiConfig } from "@/lib/ai-config";
 import {
   GROUP_LABELS,
@@ -124,6 +125,10 @@ export function AiSettings() {
           autoCorrect={false}
           placeholder={info.baseUrl ?? "https://…/v1"}
         />
+      ) : info.server ? (
+        <Text className="text-muted text-[11px] mb-2">
+          Anahtar gerekmez: Nichevo sunucusu EVREN LLM'e kendi anahtarıyla bağlanır. Yalnızca izin verilen hesaplarda çalışır; sohbet metinlerin sunucudan geçer.
+        </Text>
       ) : (
         <Text className="text-muted text-[11px] mb-2">Adres: {info.baseUrl}</Text>
       )}
@@ -148,7 +153,7 @@ export function AiSettings() {
             Anahtar cihazın güvenli deposunda saklanır; yalnızca seçtiğiniz sağlayıcıya gönderilir.
           </Text>
         </View>
-      ) : (
+      ) : info.server ? null : (
         <Text className="text-muted text-[11px] mb-2">Bu sağlayıcı anahtar istemez (aynı ağdaki PC&apos;de çalışmalı).</Text>
       )}
 

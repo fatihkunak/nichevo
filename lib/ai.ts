@@ -1,4 +1,5 @@
 // Uygulama genelinde tek AI girişi: seçili sağlayıcıyı (Profil > Yapay Zeka) kullanır.
+import "@/lib/ai-server"; // sunucu sağlayıcısının taşıyıcısını kaydeder
 import { loadAiConfig } from "@/lib/ai-config";
 import { AiError, chat, resolve, type ChatTurn, type Creds } from "@/lib/ai-providers";
 import { parsePlan, planPrompt, type Phase } from "@/lib/plan";

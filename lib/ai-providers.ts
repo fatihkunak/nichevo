@@ -21,6 +21,8 @@ export interface ProviderInfo {
   /** Kimlik doğrulama `Authorization: Bearer` yerine `X-API-Key` (EVREN) */
   xApiKey: boolean;
   needsKey: boolean;
+  /** Sohbet istemcide değil Nichevo sunucusu üzerinden yapılır (anahtar sunucuda durur, cihaza girilmez) */
+  server: boolean;
 }
 
 export const GROUP_LABELS: Record<Group, string> = {
@@ -52,10 +54,13 @@ const p = (
   maxTokensParam: "max_tokens",
   xApiKey: false,
   needsKey: group !== "local",
+  server: false,
   ...extra,
 });
 
 export const PROVIDERS: ProviderInfo[] = [
+  // Anahtar gerekmez: sunucu EVREN LLM'e kendi anahtarıyla bağlanır (yalnızca izin listesindeki hesaplar)
+  p("server", "Nichevo sunucusu (EVREN LLM, anahtarsız)", "openai", "free", undefined, "qwen3.8-flash-next", undefined, { server: true, needsKey: false }),
   p("gemini", "Google Gemini", "openai", "free", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.8-flash", "https://aistudio.google.com/apikey"),
   p("groq", "Groq", "openai", "free", "https://api.groq.com/openai/v1", "qwen/qwen3.8-27b", "https://console.groq.com/keys"),
   p("openrouter", "OpenRouter", "openai", "free", "https://openrouter.ai/api/v1", "openrouter/free", "https://openrouter.ai/keys"),
@@ -70,7 +75,7 @@ export const PROVIDERS: ProviderInfo[] = [
   // Telefon "localhost"a kendi içinden erişir; PC'deki sunucu için ağ adresi (ör. http://192.168.1.20:11434/v1) yazılır.
   p("ollama", "Ollama (ağdaki PC)", "openai", "local", "http://localhost:11434/v1", undefined, "https://ollama.com/download"),
   p("lmstudio", "LM Studio (ağdaki PC)", "openai", "local", "http://localhost:1234/v1", undefined, "https://lmstudio.ai"),
-  p("evren", "EVREN LLM", "openai", "other", "https://evren-llmapi.ssyz.org.tr/v1", undefined, "https://evren.ssyz.org.tr/llm-inference/", {
+  p("evren", "EVREN LLM", "openai", "other", "https://evren-llmapi.ssyz.org.tr/v1", "auto", "https://evren.ssyz.org.tr/llm-inference/", {
     xApiKey: true,
   }),
   p("alibaba", "Alibaba Qwen (Model Studio)", "openai", "other", undefined, undefined, "https://modelstudio.console.alibabacloud.com/"),
@@ -80,7 +85,7 @@ export const PROVIDERS: ProviderInfo[] = [
 export const getProvider = (id: string): ProviderInfo | undefined => PROVIDERS.find((x) => x.id === id);
 
 /** Kullanıcı bu sağlayıcıda adresi yazabilir/değiştirebilir mi? */
-export const baseUrlEditable = (info: ProviderInfo): boolean => !info.baseUrl || info.group === "local";
+export const baseUrlEditable = (info: ProviderInfo): boolean => !info.server && (!info.baseUrl || info.group === "local");
 
 export interface AiConfig {
   provider: string;
@@ -131,6 +136,8 @@ export function validateBaseUrl(raw: string, info: ProviderInfo): void {
 export function resolve(cfg: AiConfig): Creds {
   const info = getProvider(cfg.provider);
   if (!info) throw new AiError("NO_PROVIDER", "Sağlayıcı seçilmemiş.");
+  // Sunucu sağlayıcısında adres/anahtar yok: istek Nichevo sunucusuna gider (bkz. setServerTransport)
+  if (info.server) return { info, apiKey: "", model: cfg.model.trim() || info.defaultModel || "qwen3.8-flash-next", baseUrl: "nichevo-server" };
   const typed = cfg.baseUrl.trim().replace(/\/+$/, "");
   // Başka bir sağlayıcıya ait eski adres geçersiz kılma sayılmaz
   const isOverride = typed !== "" && !PROVIDERS.some((x) => x.baseUrl === typed);
@@ -142,6 +149,17 @@ export function resolve(cfg: AiConfig): Creds {
   if (info.needsKey && !apiKey) throw new AiError("NO_KEY", `${info.label} için API anahtarı gerekli.`);
   return { info, apiKey, model, baseUrl };
 }
+
+/** Sunucu sağlayıcısı için RN'e bağımlı taşıyıcı (lib/ai-server.ts kaydeder); bu dosya saf kalır. */
+export interface ServerTransport {
+  chat(system: string, turns: ChatTurn[], model: string, maxTokens: number): Promise<string>;
+}
+let serverTransport: ServerTransport | null = null;
+export const setServerTransport = (t: ServerTransport | null) => {
+  serverTransport = t;
+};
+/** EVREN'in sohbet modelleri (2026-11-22 itibarıyla); sunucu hepsini `auto`/ad ile kabul eder */
+export const SERVER_MODELS = ["qwen3.8-flash-next", "gemma-4-31b", "glm-5.3", "deepseek-v4.1-flash", "auto"];
 
 export function authHeaders(c: Creds): Record<string, string> {
   if (!c.apiKey) return {};
@@ -193,7 +211,10 @@ export function parseResponse(kind: Kind, v: any): string {
 /** `GET /models` gövdesinden model kimlikleri: {data:[{id}]}, {models:[{name:"models/x"}]}, {models:[{id}]} */
 export function parseModelList(v: any): string[] {
   const arr: any[] = Array.isArray(v?.data) ? v.data : Array.isArray(v?.models) ? v.models : [];
+  // EVREN gibi sağlayıcılar her modelde `task` verir (chat, ocr, tts, embedding…); sohbet dışı olanlar seçiciye girmesin.
+  const chatLike = (m: any) => typeof m?.task !== "string" || m.task === "chat" || m.task === "vision_chat";
   const ids = arr
+    .filter(chatLike)
     .map((m) => (typeof m?.id === "string" ? m.id : typeof m?.name === "string" ? m.name : ""))
     .map((s: string) => (s.startsWith("models/") ? s.slice(7) : s))
     .filter((s: string) => s && s.length <= 200);
@@ -229,6 +250,10 @@ async function request(url: string, init: RequestInit, key: string, timeoutMs: n
 
 export async function chat(c: Creds, system: string, turns: ChatTurn[], maxTokens = MAX_TOKENS): Promise<string> {
   if (!c.model) throw new AiError("NO_MODEL", "Model seçilmemiş: “Modelleri getir” ile seçin veya adını yazın.");
+  if (c.info.server) {
+    if (!serverTransport) throw new AiError("NO_PROVIDER", "Sunucu yapay zekâsı bu sürümde hazır değil.");
+    return serverTransport.chat(system, turns, c.model, maxTokens);
+  }
   const body = await request(
     chatUrl(c),
     {
@@ -243,6 +268,7 @@ export async function chat(c: Creds, system: string, turns: ChatTurn[], maxToken
 }
 
 export async function listModels(c: Creds): Promise<string[]> {
+  if (c.info.server) return SERVER_MODELS;
   const url = c.info.kind === "anthropic" ? `${c.baseUrl}/models?limit=100` : `${c.baseUrl}/models`;
   const body = await request(url, { method: "GET", headers: authHeaders(c) }, c.apiKey, 30_000);
   return parseModelList(body);
