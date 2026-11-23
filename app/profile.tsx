@@ -6,6 +6,7 @@ import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { Field } from "@/components/field";
 import { AccountCard } from "@/components/account-card";
 import { AiSettings } from "@/components/ai-settings";
+import { EmailVerifyCard } from "@/components/email-verify-card";
 import { Card, GradientButton } from "@/components/nv";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -132,6 +133,8 @@ export default function ProfileScreen() {
             </View>
           </View>
         </Card>
+
+        <EmailVerifyCard />
 
         <Card title="Kanal Bilgileri">
           <Field

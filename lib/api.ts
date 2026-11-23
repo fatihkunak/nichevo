@@ -20,6 +20,8 @@ export type ServerUser = {
   onboarded: boolean;
   /** Google ile açılan hesaplarda false */
   hasPassword: boolean;
+  /** E-posta kodla doğrulandı mı (Google hesapları doğrulanmış sayılır). Doğrulama girişi engellemez. */
+  emailVerified: boolean;
 };
 
 type Session = { user: ServerUser; accessToken: string; refreshToken: string; expiresIn: number };
@@ -165,12 +167,36 @@ export async function deleteAccount(password?: string) {
   await clearTokens();
 }
 
+// --- Parola sıfırlama ve e-posta doğrulama (sunucuda SMTP tanımlıysa; 6 haneli kod e-postayla gelir) ---
+/** Şifreli hesaba kod gönderir. Hesap var mı yok mu belli olmaz: yanıt her zaman başarılıdır. */
+export async function forgotPassword(email: string) {
+  await raw<{ ok: true }>("/v1/auth/forgot-password", { method: "POST", body: { email } });
+}
+
+/** Kod doğruysa şifreyi değiştirir ve yeni oturum açar (diğer cihazların oturumları kapanır). */
+export async function resetPassword(b: { email: string; code: string; newPassword: string }) {
+  const s = await raw<Session>("/v1/auth/reset-password", { method: "POST", body: b });
+  await storeTokens(s);
+  return s.user;
+}
+
+export async function verifyEmail(code: string) {
+  return (await authed<{ user: ServerUser }>("/v1/auth/verify-email", "POST", { code })).user;
+}
+
+export async function resendVerification() {
+  await authed<{ ok: true }>("/v1/auth/resend-verification", "POST", {});
+}
+
 // --- Google ile giriş (sunucu tarafı kod akışı) ---
-export const fetchProviders = async (): Promise<{ google: boolean }> => {
+export type Providers = { google: boolean; email: boolean };
+
+export const fetchProviders = async (): Promise<Providers> => {
   try {
-    return await raw<{ google: boolean }>("/v1/auth/providers", { method: "GET" });
+    const p = await raw<Partial<Providers>>("/v1/auth/providers", { method: "GET" });
+    return { google: p.google === true, email: p.email === true };
   } catch {
-    return { google: false };
+    return { google: false, email: false };
   }
 };
 
