@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 
+import { CompetitorsCard } from "@/components/competitors-card";
 import { Card, Chip, Gauge, Heatmap, SampleBadge, ScreenHeader } from "@/components/nv";
 import { ScreenContainer } from "@/components/screen-container";
 import {
@@ -173,6 +174,8 @@ export default function DashboardScreen() {
             </Text>
           </Card>
         ) : null}
+
+        <CompetitorsCard />
 
         <Card title="Rekabet Isı Haritası" hint={heat ? "TR · canlı · son 30 gün" : "niş × format"}>
           {heatState === "loading" && !heat ? (

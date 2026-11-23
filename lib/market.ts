@@ -147,13 +147,18 @@ export async function fetchHeatmap(apiKey: string, now = Date.now()): Promise<He
 const TTL = DAY;
 type Cached<T> = { at: number; value: T };
 
-export async function cached<T>(key: string, load: () => Promise<T>, now = Date.now()): Promise<{ value: T; at: number; fresh: boolean }> {
+export async function cached<T>(
+  key: string,
+  load: () => Promise<T>,
+  now = Date.now(),
+  ttl = TTL,
+): Promise<{ value: T; at: number; fresh: boolean }> {
   let hit: Cached<T> | null = null;
   try {
     const raw = await AsyncStorage.getItem(key);
     if (raw) hit = JSON.parse(raw) as Cached<T>;
   } catch {}
-  if (hit && now - hit.at < TTL) return { value: hit.value, at: hit.at, fresh: false };
+  if (hit && now - hit.at < ttl) return { value: hit.value, at: hit.at, fresh: false };
   try {
     const value = await load();
     try {
