@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 
 import { Card, Chip, Gauge, Heatmap, SampleBadge, ScreenHeader } from "@/components/nv";
@@ -9,15 +9,17 @@ import {
   HEAT_DATA,
   HEAT_ROWS,
   SAMPLE_TOPICS,
+  channelHealth,
   channelScore,
   formatCount,
+  type RecentVideo,
   topKeywords,
   topPhrases,
 } from "@/lib/insights";
 import { QuotaError, loadHeat, type Heat } from "@/lib/market";
 import { useSession } from "@/lib/session";
 import { loadYoutubeApiKey } from "@/lib/youtube-api";
-import { fetchChannelInfo, fetchTrendingVideoTexts, type ChannelInfo } from "@/lib/youtube-extras";
+import { fetchChannelInfo, fetchRecentVideos, fetchTrendingVideoTexts, type ChannelInfo } from "@/lib/youtube-extras";
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -25,6 +27,7 @@ export default function DashboardScreen() {
   const [topics, setTopics] = useState<string[]>(SAMPLE_TOPICS);
   const [topicsLive, setTopicsLive] = useState(false);
   const [channel, setChannel] = useState<ChannelInfo | null>(null);
+  const [recent, setRecent] = useState<RecentVideo[]>([]);
   const [note, setNote] = useState("");
   const [heat, setHeat] = useState<Heat | null>(null);
   const [heatState, setHeatState] = useState<"idle" | "loading" | "error">("idle");
@@ -58,6 +61,10 @@ export default function DashboardScreen() {
         try {
           const c = await fetchChannelInfo(profile.channelId, key);
           if (alive) setChannel(c);
+          if (c) {
+            const r = await fetchRecentVideos(c.id, key, 10);
+            if (alive) setRecent(r);
+          }
         } catch {}
       }
       if (alive) setHeatState("loading");
@@ -81,6 +88,7 @@ export default function DashboardScreen() {
   }, [profile?.channelId]);
 
   const score = channel ? channelScore(channel) : null;
+  const health = useMemo(() => (channel ? channelHealth(recent, channel.subs) : null), [recent, channel]);
 
   return (
     <ScreenContainer className="px-4 pt-2">
@@ -130,6 +138,35 @@ export default function DashboardScreen() {
           </Card>
         </View>
 
+        {health ? (
+          <Card title="Kanal Sağlığı" hint={`son ${recent.length} video`}>
+            <View className="flex-row flex-wrap">
+              <Stat label="Ort. görüntülenme" value={formatCount(Math.round(health.avgViews))} />
+              <Stat label="Medyan" value={formatCount(Math.round(health.medianViews))} />
+              <Stat
+                label="Abone başına"
+                value={channel && channel.subs > 0 ? `%${Math.round(health.viewsPerSubPct)}` : "—"}
+              />
+              <Stat
+                label="Yükleme"
+                value={health.uploadsPerMonth === null ? "—" : `~${Math.round(health.uploadsPerMonth)}/ay`}
+              />
+              <Stat label="Etkileşim" value={`%${health.engagementPct.toFixed(1).replace(".", ",")}`} />
+              <Stat
+                label="Eğilim"
+                value={health.trendPct === null ? "—" : `${health.trendPct >= 0 ? "▲ +" : "▼ "}${Math.round(health.trendPct)}%`}
+                color={health.trendPct === null ? undefined : health.trendPct >= 0 ? "#34D399" : "#F87171"}
+              />
+            </View>
+            <Text className="text-muted text-[11px] mt-2" numberOfLines={2}>
+              En iyi: {health.best.title} · {formatCount(health.best.views)} görüntülenme
+            </Text>
+            <Text className="text-muted text-[10px] mt-1">
+              Eğilim: son videoların ortalaması, öncekilerle karşılaştırılır (en az 4 video).
+            </Text>
+          </Card>
+        ) : null}
+
         <Card title="Rekabet Isı Haritası" hint={heat ? "TR · canlı · son 30 gün" : "niş × format"}>
           {heatState === "loading" && !heat ? (
             <View className="items-center py-6">
@@ -158,5 +195,16 @@ export default function DashboardScreen() {
         {note ? <Text className="text-muted text-[11px] text-center mt-1">{note}</Text> : null}
       </ScrollView>
     </ScreenContainer>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={{ width: "33.33%", paddingVertical: 6 }}>
+      <Text className="text-muted text-[10px]">{label}</Text>
+      <Text className="text-foreground text-[16px] font-bold" style={color ? { color } : undefined}>
+        {value}
+      </Text>
+    </View>
   );
 }

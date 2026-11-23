@@ -41,6 +41,68 @@ export function channelScore(c: { subs: number; views: number; videos: number })
   return Math.round((reach * 0.5 + authority * 0.3 + consistency * 0.2) * 100);
 }
 
+export interface RecentVideo {
+  id: string;
+  title: string;
+  views: number;
+  likes: number;
+  comments: number;
+  publishedAt: string; // ISO tarih
+}
+
+export interface ChannelHealth {
+  avgViews: number;
+  medianViews: number;
+  /** Ortalama görüntülenme / abone (yüzde). Abone sayısı gizliyse 0. */
+  viewsPerSubPct: number;
+  /** Son videolardan tahmin: ayda kaç video. Tek video varsa null. */
+  uploadsPerMonth: number | null;
+  /** Son yarı ortalaması / önceki yarı ortalaması - 1 (yüzde). En az 4 video ve önceki yarı > 0 gerekir. */
+  trendPct: number | null;
+  best: { title: string; views: number };
+  engagementPct: number;
+}
+
+/** Son videolardan kanalın güncel gidişatı. Saf fonksiyon: girdi sırası önemli değil. */
+export function channelHealth(videos: RecentVideo[], subs: number): ChannelHealth | null {
+  if (videos.length === 0) return null;
+  const sorted = [...videos].sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+  const n = sorted.length;
+  const views = sorted.map((x) => x.views);
+  const avgOf = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const avgViews = avgOf(views);
+  const asc = [...views].sort((a, b) => a - b);
+  const medianViews = n % 2 ? asc[(n - 1) / 2] : (asc[n / 2 - 1] + asc[n / 2]) / 2;
+
+  let uploadsPerMonth: number | null = null;
+  if (n >= 2) {
+    const spanDays = (Date.parse(sorted[0].publishedAt) - Date.parse(sorted[n - 1].publishedAt)) / 86_400_000;
+    if (spanDays >= 1) uploadsPerMonth = ((n - 1) / spanDays) * 30;
+  }
+
+  let trendPct: number | null = null;
+  if (n >= 4) {
+    const half = Math.floor(n / 2);
+    const recent = avgOf(views.slice(0, half));
+    const older = avgOf(views.slice(half, half * 2));
+    if (older > 0) trendPct = (recent / older - 1) * 100;
+  }
+
+  const best = sorted.reduce((a, b) => (b.views > a.views ? b : a));
+  const totalViews = views.reduce((a, b) => a + b, 0);
+  const interactions = sorted.reduce((a, b) => a + b.likes + b.comments, 0);
+
+  return {
+    avgViews,
+    medianViews,
+    viewsPerSubPct: subs > 0 ? (avgViews / subs) * 100 : 0,
+    uploadsPerMonth,
+    trendPct,
+    best: { title: best.title, views: best.views },
+    engagementPct: totalViews > 0 ? (interactions / totalViews) * 100 : 0,
+  };
+}
+
 /** Basit büyüme modeli: mevcut görüntülenmeyi etkileşim oranına göre sonraki dönemlere yayar. */
 export function forecastViews(views: number, engagementPct: number, periods = 6): number[] {
   const growth = 1 + Math.min(0.25, Math.max(0.02, engagementPct / 100));

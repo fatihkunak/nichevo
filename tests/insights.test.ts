@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { channelScore, forecastViews, formatCount, formatMultiple, sentiment, topKeywords, topPhrases } from "../lib/insights";
+import { channelHealth, channelScore, forecastViews, formatCount, formatMultiple, sentiment, topKeywords, topPhrases } from "../lib/insights";
 
 describe("insights", () => {
   it("formatCount kısaltır", () => {
@@ -51,5 +51,65 @@ describe("insights", () => {
   it("topPhrases tam etiketleri sayar, genel/kısa olanları atar", () => {
     const p = topPhrases(["minecraft", "Minecraft", "official", "gta", "yapay zeka", "2026", "fragman", "yapay zeka"], 3);
     expect(p).toEqual(["Minecraft", "Yapay zeka", "Fragman"]);
+  });
+
+  describe("channelHealth", () => {
+    const day = 86_400_000;
+    const base = Date.UTC(2026, 10, 1);
+    const v = (i: number, views: number, likes = 0, comments = 0) => ({
+      id: "v" + i,
+      title: "Video " + i,
+      views,
+      likes,
+      comments,
+      publishedAt: new Date(base - i * 3 * day).toISOString(), // i=0 en yeni, 3 günde bir
+    });
+
+    it("video yoksa null döner", () => {
+      expect(channelHealth([], 1000)).toBeNull();
+    });
+
+    it("ortalama, medyan, en iyi video ve aboneye oranı hesaplar", () => {
+      const h = channelHealth([v(0, 100), v(1, 300), v(2, 200)], 1000)!;
+      expect(h.avgViews).toBe(200);
+      expect(h.medianViews).toBe(200);
+      expect(h.best).toEqual({ title: "Video 1", views: 300 });
+      expect(h.viewsPerSubPct).toBeCloseTo(20, 5);
+    });
+
+    it("yükleme sıklığını ayda kaç video olarak verir", () => {
+      // 3 video, 3 günde bir: aralık 6 gün, 2 aralık -> 30/3 = 10 video/ay
+      const h = channelHealth([v(0, 10), v(1, 10), v(2, 10)], 100)!;
+      expect(h.uploadsPerMonth).toBeCloseTo(10, 5);
+    });
+
+    it("tek videoda sıklık ve eğilim null olur", () => {
+      const h = channelHealth([v(0, 50)], 100)!;
+      expect(h.uploadsPerMonth).toBeNull();
+      expect(h.trendPct).toBeNull();
+    });
+
+    it("son yarıyı önceki yarıyla karşılaştırır (eğilim yüzdesi)", () => {
+      // yeniler 200, eskiler 100 -> +100%
+      const h = channelHealth([v(0, 200), v(1, 200), v(2, 100), v(3, 100)], 1000)!;
+      expect(h.trendPct).toBeCloseTo(100, 5);
+      const down = channelHealth([v(0, 50), v(1, 50), v(2, 100), v(3, 100)], 1000)!;
+      expect(down.trendPct).toBeCloseTo(-50, 5);
+    });
+
+    it("etkileşim oranı (beğeni+yorum)/görüntülenme", () => {
+      const h = channelHealth([v(0, 1000, 40, 10), v(1, 1000, 30, 20)], 500)!;
+      expect(h.engagementPct).toBeCloseTo(5, 5);
+    });
+
+    it("aboneler gizliyse (0) aboneye oranı 0 olur, bölme hatası vermez", () => {
+      const h = channelHealth([v(0, 100)], 0)!;
+      expect(h.viewsPerSubPct).toBe(0);
+    });
+
+    it("sırasız gelen videoları tarihe göre sıralar", () => {
+      const h = channelHealth([v(3, 100), v(0, 200), v(2, 100), v(1, 200)], 1000)!;
+      expect(h.trendPct).toBeCloseTo(100, 5);
+    });
   });
 });
