@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { Card, GradientButton, ScreenHeader } from "@/components/nv";
 import { ScreenContainer } from "@/components/screen-container";
@@ -8,6 +8,7 @@ import { useColors } from "@/hooks/use-colors";
 import { aiStatus, generateIdeas as aiGenerateIdeas, generatePlan, templateIdeas } from "@/lib/ai";
 import { WEEK_DAYS } from "@/lib/insights";
 import { templatePlan, type Phase } from "@/lib/plan";
+import { loadRemind, saveRemind, syncReminders, type RemindSettings } from "@/lib/reminder-scheduler";
 import { sharePlanPDF, type PlanData } from "@/lib/report-service";
 import { bumpUsage } from "@/lib/usage";
 
@@ -27,6 +28,9 @@ export default function PlannerScreen() {
   const [events, setEvents] = useState<PlanEvent[]>([]);
   const [day, setDay] = useState((new Date().getDay() + 6) % 7);
   const [newTitle, setNewTitle] = useState("");
+  const [remind, setRemind] = useState<RemindSettings>({ on: false, hour: 9 });
+  const [remindReady, setRemindReady] = useState(false);
+  const [remindNote, setRemindNote] = useState("");
 
   const [ideaNiche, setIdeaNiche] = useState("");
   const [ideas, setIdeas] = useState<string[]>([]);
@@ -38,6 +42,45 @@ export default function PlannerScreen() {
       .then((raw) => raw && setEvents(JSON.parse(raw)))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadRemind().then((r) => {
+      setRemind(r);
+      setRemindReady(true);
+    });
+  }, []);
+
+  // Takvim ya da hatırlatma ayarı değişince cihazdaki bildirimleri yeniden kur
+  useEffect(() => {
+    if (!remindReady) return;
+    let alive = true;
+    syncReminders(events, remind).then((res) => {
+      if (!alive) return;
+      if (res.ok) {
+        setRemindNote(
+          remind.on
+            ? res.scheduled > 0
+              ? `${res.scheduled} gün için her hafta ${String(remind.hour).padStart(2, "0")}:00'da hatırlatılacak.`
+              : "Takvimde içerik eklenince hatırlatma kurulacak."
+            : "",
+        );
+      } else if (res.reason === "permission") {
+        setRemind((r) => ({ ...r, on: false }));
+        saveRemind({ ...remind, on: false });
+        setRemindNote("Bildirim izni verilmedi. Telefon ayarlarından Nichevo için bildirimi açın.");
+      } else {
+        setRemindNote("Hatırlatma kurulamadı.");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [events, remind, remindReady]);
+
+  const changeRemind = (next: RemindSettings) => {
+    setRemind(next);
+    saveRemind(next);
+  };
 
   const saveEvents = useCallback((next: PlanEvent[]) => {
     setEvents(next);
@@ -161,6 +204,37 @@ export default function PlannerScreen() {
               ))
             )}
           </View>
+          <View className="flex-row items-center justify-between mt-3 pt-3 border-t border-border">
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text className="text-foreground text-[13px]">Sabah hatırlat</Text>
+              <Text className="text-muted text-[11px]">Planlı içerik olan günlerde bildirim</Text>
+            </View>
+            {remind.on ? (
+              <View className="flex-row items-center mr-3">
+                <Pressable
+                  onPress={() => changeRemind({ ...remind, hour: (remind.hour + 23) % 24 })}
+                  accessibilityLabel="Saati azalt"
+                  style={{ paddingHorizontal: 10, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: colors.info, fontSize: 18 }}>−</Text>
+                </Pressable>
+                <Text className="text-foreground text-[13px]">{String(remind.hour).padStart(2, "0")}:00</Text>
+                <Pressable
+                  onPress={() => changeRemind({ ...remind, hour: (remind.hour + 1) % 24 })}
+                  accessibilityLabel="Saati artır"
+                  style={{ paddingHorizontal: 10, paddingVertical: 4 }}
+                >
+                  <Text style={{ color: colors.info, fontSize: 18 }}>+</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            <Switch
+              value={remind.on}
+              onValueChange={(on) => changeRemind({ ...remind, on })}
+              accessibilityLabel="Sabah hatırlat"
+            />
+          </View>
+          {remindNote ? <Text className="text-muted text-[11px] mt-2">{remindNote}</Text> : null}
           <View className="flex-row items-center mt-3">
             <TextInput
               value={newTitle}
