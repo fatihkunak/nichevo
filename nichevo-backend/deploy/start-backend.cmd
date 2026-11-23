@@ -6,6 +6,6 @@ cd /d "C:\Users\Fatih\Desktop\fatihgo\fatihgo-mobile-fixed\nichevo-backend"
 if not exist logs mkdir logs
 :loop
 if exist deploy\stop.flag exit /b 0
-"C:\Program Files\nodejs\node.exe" node_modules\tsx\dist\cli.mjs --env-file=.env src\server.ts >> logs\backend.log 2>&1
+"C:\Program Files\nodejs\node.exe" node_modules\tsx\dist\cli.mjs --env-file=.env --env-file-if-exists=.env.mail src\server.ts >> logs\backend.log 2>&1
 ping -n 16 127.0.0.1 >nul
 goto loop
