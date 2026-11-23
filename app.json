@@ -1,4 +1,4 @@
-{
+﻿{
   "expo": {
     "name": "Nichevo",
     "slug": "fatihgo-analysis-mobile",
@@ -92,7 +92,7 @@
             ],
             "minSdkVersion": 24,
             "targetSdkVersion": 36,
-            "compileSdkVersion": 36
+            "compileSdkVersion": 37
           },
           "ios": {
             "deploymentTarget": "16.4"

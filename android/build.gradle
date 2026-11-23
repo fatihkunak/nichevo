@@ -8,7 +8,8 @@ buildscript {
   dependencies {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    def kotlinVersion = findProperty('android.kotlinVersion')
+    classpath(kotlinVersion ? "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion" : 'org.jetbrains.kotlin:kotlin-gradle-plugin')
   }
 }
 
@@ -17,6 +18,17 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+  }
+}
+
+// Windows: ninja 1.10 (SDK cmake 3.22.1) 260 karakter yol sinirina takilir (ornegin react-native-worklets).
+// Native derleme klasorunu kisa bir yola tasi. Yalnizca Windows'ta etkin.
+if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+  gradle.afterProject { p ->
+    def androidExt = p.extensions.findByName('android')
+    if (androidExt != null && androidExt.hasProperty('externalNativeBuild')) {
+      androidExt.externalNativeBuild.cmake.buildStagingDirectory = new File("C:/b/${p.name}")
+    }
   }
 }
 
