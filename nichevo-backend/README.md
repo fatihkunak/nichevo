@@ -125,3 +125,16 @@ Not: hesaplar herkese açık kayıt alıyor (e-posta doğrulaması yok); hız s�
 - **GRANT unutma:** çalışma rolü `nichevo_app` süper kullanıcı değil; yeni tablo eklerken `002_grants.sql`'deki `DEFAULT PRIVILEGES` kapsar, yine de testte kontrol et. Test, uygulamayı bu rolle çalıştırır.
 - Migrasyonlar `nichevo_owner` ile, sunucu `nichevo_app` ile çalışır.
 - `.env` git'e girmez.
+
+## Parola sıfırlama ve e-posta doğrulaması
+
+Opsiyonel. `.env`'de `SMTP_URL` (örn. `smtps://kullanici:parola@smtp.ornek.com:465`) ve `MAIL_FROM` (örn. `Nichevo <no-reply@ornek.com>`) **ikisi de** tanımlıysa açılır; yoksa kapalıdır (aşağıdaki uç noktalar 503 verir, `GET /v1/auth/providers` `email:false` döner ve uygulama düğmeleri göstermez; kayıt eskisi gibi çalışır). Herhangi bir SMTP sağlayıcısı olur. Yeni göç `005_email.sql` için `npm run migrate` çalıştırılmalıdır.
+
+| Uç nokta | Ne yapar |
+|---|---|
+| `POST /v1/auth/forgot-password` `{email}` | Şifreli hesaba 6 haneli kod gönderir. Yanıt her durumda `202 {ok:true}` (hesap var mı belli olmaz); aynı e-posta için saatte 3, IP için saatte 10 istek |
+| `POST /v1/auth/reset-password` `{email, code, newPassword}` | Kod doğruysa şifreyi değiştirir, tüm oturumları kapatır, yeni oturum döner. Kod 15 dk geçerli, tek kullanımlık, 5 yanlış denemede kilitlenir |
+| `POST /v1/auth/verify-email` `{code}` (oturumlu) | E-postayı doğrulanmış yapar (`user.emailVerified`). Kayıtta kod otomatik gönderilir; doğrulama **girişi engellemez** |
+| `POST /v1/auth/resend-verification` (oturumlu) | Kodu yeniden gönderir (saatte 3) |
+
+Kodun kendisi veritabanında saklanmaz, yalnızca `JWT_SECRET` ile HMAC özeti. Google ile açılan hesaplar doğrulanmış sayılır ve şifresiz oldukları için sıfırlama kodu almaz.

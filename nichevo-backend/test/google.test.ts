@@ -68,7 +68,7 @@ async function flow(redirect = APP, code = "good") {
 
 describe("Google girişi", () => {
   it("sağlayıcı listesi Google'ı açık gösterir", async () => {
-    expect((await app.inject({ method: "GET", url: "/v1/auth/providers" })).json()).toEqual({ google: true });
+    expect((await app.inject({ method: "GET", url: "/v1/auth/providers" })).json()).toMatchObject({ google: true });
   });
 
   it("start: doğru Google adresine, doğru geri dönüş ve nonce ile yönlendirir", async () => {
@@ -199,7 +199,7 @@ describe("Google kapalıyken", () => {
   it("uç noktalar 503 döner ve sağlayıcı listesi google:false der", async () => {
     await app.close();
     app = buildApp({ pool: appPool, jwtSecret: JWT });
-    expect((await app.inject({ method: "GET", url: "/v1/auth/providers" })).json()).toEqual({ google: false });
+    expect((await app.inject({ method: "GET", url: "/v1/auth/providers" })).json()).toMatchObject({ google: false });
     expect((await app.inject({ method: "GET", url: `/v1/auth/google/start?redirect=${encodeURIComponent(APP)}` })).statusCode).toBe(503);
   });
 });

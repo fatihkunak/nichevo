@@ -10,7 +10,7 @@ import { useSession } from "@/lib/session";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn, mode } = useSession();
+  const { signIn, mode, emailAvailable } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -46,6 +46,15 @@ export default function LoginScreen() {
             placeholder="ornek@mail.com"
           />
           <Field label="Şifre" value={password} onChangeText={setPassword} secure placeholder="••••••" />
+          {emailAvailable ? (
+            <Pressable
+              onPress={() => router.push({ pathname: "/(auth)/forgot", params: { email: email.trim() } })}
+              accessibilityLabel="Şifremi unuttum"
+              style={{ alignSelf: "flex-end", paddingVertical: 4, marginBottom: 6 }}
+            >
+              <Text className="text-info text-[12px]">Şifremi unuttum</Text>
+            </Pressable>
+          ) : null}
           {error ? <Text className="text-error text-[12px] mb-2">{error}</Text> : null}
           <GradientButton title="Giriş Yap" onPress={submit} loading={busy} style={{ marginTop: 6 }} />
           <GoogleSignIn onError={setError} />

@@ -9,6 +9,17 @@ import {
   googleRedirectUri,
   type GoogleConfig,
 } from "./google.js";
+import {
+  CODE_MAX_ATTEMPTS,
+  CODE_TTL_MIN,
+  hashCode,
+  newCode,
+  resetMail,
+  sameHash,
+  verifyMail,
+  type CodePurpose,
+  type Mailer,
+} from "./mailer.js";
 import { dummyVerify, hashPassword, verifyPassword } from "./password.js";
 import { registerAiRoutes, type AiConfig } from "./ai.js";
 import { registerSocialRoutes } from "./social/routes.js";
@@ -37,6 +48,7 @@ interface UserRow {
   language: "tr" | "en";
   notifications: boolean;
   onboarded: boolean;
+  email_verified: boolean;
   token_version: number;
 }
 
@@ -57,6 +69,7 @@ const publicUser = (u: UserRow) => ({
   notifications: u.notifications,
   onboarded: u.onboarded,
   hasPassword: u.password_hash !== null,
+  emailVerified: u.email_verified,
 });
 
 const email = z.string().trim().toLowerCase().email().max(320);
@@ -85,6 +98,10 @@ const changePasswordBody = z.object({ currentPassword: z.string().min(1).max(200
 // Şifreli hesap şifresini, Google hesabı (şifresi yok) açık onayı gönderir
 const deleteBody = z.object({ password: z.string().min(1).max(200).optional(), confirm: z.literal(true).optional() });
 const exchangeBody = z.object({ code: z.string().min(20).max(2000) });
+const codeField = z.string().trim().regex(/^\d{6}$/, "Kod 6 haneli olmalı");
+const forgotBody = z.object({ email });
+const resetBody = z.object({ email, code: codeField, newPassword });
+const verifyBody = z.object({ code: codeField });
 
 /** Basit bellek içi kayan pencere sınırlayıcı (tek süreçli sunucu için yeterli). */
 class RateLimiter {
@@ -115,9 +132,11 @@ export interface AppOptions {
   social?: { service: SocialService; allowedEmails: string[] };
   /** Tanımlı değilse /v1/ai/* kayıtlı değildir. fetchImpl yalnızca testler içindir. */
   ai?: { config: AiConfig; allowedEmails: string[]; fetchImpl?: typeof fetch };
+  /** Tanımlı değilse parola sıfırlama ve e-posta doğrulama kapalıdır (uç noktalar 503, kayıt eskisi gibi). */
+  mailer?: Mailer;
 }
 
-export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, google, social, ai }: AppOptions): FastifyInstance {
+export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, google, social, ai, mailer }: AppOptions): FastifyInstance {
   const app = Fastify({
     logger: logger ? { level: "info", redact: ["req.headers.authorization"] } : false,
     bodyLimit: 16 * 1024,
@@ -174,6 +193,49 @@ export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, goog
   const getUserById = async (id: string) =>
     (await pool.query<UserRow>("SELECT * FROM users WHERE id = $1", [id])).rows[0];
 
+  // ---- E-posta kodları (parola sıfırlama + doğrulama) ----
+  /** Yeni kod üretir; aynı amaçtaki önceki kullanılmamış kodları geçersiz kılar. Saklanan yalnızca özet. */
+  async function issueCode(userId: string, purpose: CodePurpose): Promise<string> {
+    const code = newCode();
+    await pool.query("UPDATE email_codes SET used_at = now() WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL", [userId, purpose]);
+    await pool.query(
+      `INSERT INTO email_codes (user_id, purpose, code_hash, expires_at) VALUES ($1, $2, $3, to_timestamp($4 / 1000.0))`,
+      [userId, purpose, hashCode(jwtSecret, userId, purpose, code), now() + CODE_TTL_MIN * 60_000],
+    );
+    return code;
+  }
+
+  /** Kodu doğrular ve tüketir (tek kullanım). Yanlış denemeler sayılır; sınırda kod kilitlenir. */
+  async function consumeCode(userId: string, purpose: CodePurpose, code: string): Promise<boolean> {
+    const row = (
+      await pool.query<{ id: string; code_hash: string; attempts: number; expires_at: Date }>(
+        `SELECT id, code_hash, attempts, expires_at FROM email_codes
+          WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL
+          ORDER BY created_at DESC LIMIT 1`,
+        [userId, purpose],
+      )
+    ).rows[0];
+    if (!row || row.attempts >= CODE_MAX_ATTEMPTS || row.expires_at.getTime() <= now()) return false;
+    if (!sameHash(row.code_hash, hashCode(jwtSecret, userId, purpose, code))) {
+      await pool.query("UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1", [row.id]);
+      return false;
+    }
+    // Atomik: aynı kod iki istekte birden kullanılamaz
+    const used = await pool.query("UPDATE email_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id", [row.id]);
+    return used.rowCount === 1;
+  }
+
+  /** E-posta hatası isteği düşürmez (kullanıcıya sunucu ayrıntısı sızmaz); günlüğe yazılır. */
+  async function trySend(mail: ReturnType<typeof resetMail>): Promise<boolean> {
+    try {
+      await mailer!.send(mail);
+      return true;
+    } catch (e) {
+      app.log.error({ err: (e as Error).message }, "e-posta gönderilemedi");
+      return false;
+    }
+  }
+
   async function authenticate(req: FastifyRequest, reply: FastifyReply) {
     const m = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ""));
     const claims = m?.[1] ? await verifyAccessToken(jwtSecret, m[1]) : null;
@@ -203,7 +265,16 @@ export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, goog
         `INSERT INTO users (email, password_hash, name, channel_name) VALUES ($1, $2, $3, $4) RETURNING *`,
         [b.email, hash, b.name, b.channelName ?? ""],
       );
-      return reply.code(201).send(await issueSession(rows[0]!, req));
+      const user = rows[0]!;
+      if (mailer) {
+        // Doğrulama kodu en iyi çaba ile gönderilir; başarısızlık kaydı engellemez
+        try {
+          await trySend(verifyMail(user.email, await issueCode(user.id, "verify")));
+        } catch (e) {
+          app.log.error({ err: (e as Error).message }, "doğrulama kodu üretilemedi");
+        }
+      }
+      return reply.code(201).send(await issueSession(user, req));
     } catch (e) {
       if ((e as { code?: string }).code === "23505") return fail(reply, 409, "EMAIL_TAKEN", "Bu e-posta zaten kayıtlı");
       throw e;
@@ -269,7 +340,7 @@ export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, goog
     return u.toString();
   };
 
-  app.get("/v1/auth/providers", async () => ({ google: Boolean(google) }));
+  app.get("/v1/auth/providers", async () => ({ google: Boolean(google), email: Boolean(mailer) }));
 
   app.get("/v1/auth/google/start", async (req, reply) => {
     if (!google) return fail(reply, 503, "GOOGLE_OFF", "Google girişi bu sunucuda kapalı");
@@ -376,6 +447,72 @@ export function buildApp({ pool, jwtSecret, logger = false, now = Date.now, goog
       [req.user!.id, ...entries.map(([, v]) => v)],
     );
     return { user: publicUser(rows[0]!) };
+  });
+
+  // ---- Parola sıfırlama (e-postaya 6 haneli kod) ----
+  const emailOff = (reply: FastifyReply) => fail(reply, 503, "EMAIL_DISABLED", "E-posta gönderimi bu sunucuda kapalı");
+
+  app.post("/v1/auth/forgot-password", async (req, reply) => {
+    if (!mailer) return emailOff(reply);
+    const b = forgotBody.parse(req.body);
+    const ip = ipOf(req);
+    if (limiter.hit(`fp:${ip}:${b.email}`, 3, 60 * 60_000) || limiter.hit(`fp-ip:${ip}`, 10, 60 * 60_000)) {
+      return fail(reply, 429, "RATE_LIMIT", "Çok fazla istek, bir saat sonra tekrar deneyin");
+    }
+    const user = (await pool.query<UserRow>("SELECT * FROM users WHERE email = $1", [b.email])).rows[0];
+    // Hesap var mı yok mu belli olmasın: yanıt her durumda aynı. Şifresiz (Google) hesaba kod gitmez.
+    if (user?.password_hash) {
+      try {
+        await trySend(resetMail(user.email, await issueCode(user.id, "pwreset")));
+      } catch (e) {
+        app.log.error({ err: (e as Error).message }, "sıfırlama kodu üretilemedi");
+      }
+    }
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.post("/v1/auth/reset-password", async (req, reply) => {
+    if (!mailer) return emailOff(reply);
+    const b = resetBody.parse(req.body); // geçersiz şifre/kod biçimi kodu tüketmez
+    if (limiter.hit(`rp:${ipOf(req)}:${b.email}`, 10, 15 * 60_000)) {
+      return fail(reply, 429, "RATE_LIMIT", "Çok fazla deneme, 15 dakika sonra tekrar deneyin");
+    }
+    const user = (await pool.query<UserRow>("SELECT * FROM users WHERE email = $1", [b.email])).rows[0];
+    const ok = Boolean(user?.password_hash) && (await consumeCode(user!.id, "pwreset", b.code));
+    if (!ok) return fail(reply, 400, "INVALID_CODE", "Kod hatalı veya süresi dolmuş");
+    const hash = await hashPassword(b.newPassword);
+    const { rows } = await pool.query<UserRow>(
+      `UPDATE users SET password_hash = $2, token_version = token_version + 1, updated_at = now()
+        WHERE id = $1 RETURNING *`,
+      [user!.id, hash],
+    );
+    await pool.query("UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = $1", [user!.id]);
+    return issueSession(rows[0]!, req);
+  });
+
+  // ---- E-posta doğrulaması (yumuşak: giriş engellenmez) ----
+  app.post("/v1/auth/verify-email", { preHandler: authenticate }, async (req, reply) => {
+    if (!mailer) return emailOff(reply);
+    const b = verifyBody.parse(req.body);
+    if (req.user!.email_verified) return { user: publicUser(req.user!) };
+    if (limiter.hit(`ve:${req.user!.id}`, 10, 15 * 60_000)) {
+      return fail(reply, 429, "RATE_LIMIT", "Çok fazla deneme, 15 dakika sonra tekrar deneyin");
+    }
+    if (!(await consumeCode(req.user!.id, "verify", b.code))) {
+      return fail(reply, 400, "INVALID_CODE", "Kod hatalı veya süresi dolmuş");
+    }
+    const { rows } = await pool.query<UserRow>("UPDATE users SET email_verified = true, updated_at = now() WHERE id = $1 RETURNING *", [req.user!.id]);
+    return { user: publicUser(rows[0]!) };
+  });
+
+  app.post("/v1/auth/resend-verification", { preHandler: authenticate }, async (req, reply) => {
+    if (!mailer) return emailOff(reply);
+    if (req.user!.email_verified) return { ok: true, alreadyVerified: true };
+    if (limiter.hit(`rv:${req.user!.id}`, 3, 60 * 60_000)) {
+      return fail(reply, 429, "RATE_LIMIT", "Çok fazla istek, bir saat sonra tekrar deneyin");
+    }
+    await trySend(verifyMail(req.user!.email, await issueCode(req.user!.id, "verify")));
+    return reply.code(202).send({ ok: true });
   });
 
   app.post("/v1/auth/change-password", { preHandler: authenticate }, async (req, reply) => {

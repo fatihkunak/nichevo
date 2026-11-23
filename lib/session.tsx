@@ -17,6 +17,8 @@ export type Profile = {
   onboarded: boolean;
   /** Google ile açılan hesaplarda false (şifre değiştirilemez, silme açık onayla yapılır) */
   hasPassword: boolean;
+  /** E-posta kodla doğrulandı mı; doğrulama girişi engellemez. Yerel modda true (doğrulanacak bir şey yok). */
+  emailVerified: boolean;
 };
 
 /** server: hesap sunucuda (EXPO_PUBLIC_API_URL tanımlı) · local: sunucu yok, profil yalnızca bu cihazda */
@@ -40,6 +42,14 @@ type SessionValue = {
   signInWithGoogle: () => Promise<void>;
   /** Geri dönüş sayfasının getirdiği tek kullanımlık kodu oturuma çevirir */
   completeGoogleSignIn: (code: string) => Promise<void>;
+  /** Sunucuda SMTP tanımlı mı (Şifremi unuttum ve e-posta doğrulamayı göstermek için) */
+  emailAvailable: boolean;
+  /** E-postaya 6 haneli sıfırlama kodu gönderir (hesap var mı belli olmaz) */
+  requestPasswordReset: (email: string) => Promise<void>;
+  /** Kod doğruysa şifreyi değiştirir ve oturum açar */
+  resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
+  verifyEmail: (code: string) => Promise<void>;
+  resendVerification: () => Promise<void>;
   update: (patch: Partial<Profile>) => Promise<void>;
   signOut: () => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
@@ -58,6 +68,7 @@ const fromServer = (u: api.ServerUser): Profile => ({
   notifications: u.notifications,
   onboarded: u.onboarded,
   hasPassword: u.hasPassword,
+  emailVerified: u.emailVerified !== false, // eski sunucu bu alanı göndermez: doğrulanmış say, gereksiz uyarı çıkmasın
 });
 
 const toServerPatch = (p: Partial<Profile>) => ({
@@ -79,6 +90,7 @@ const localProfile = (email: string, over: Partial<Profile> = {}): Profile => ({
   notifications: true,
   onboarded: false,
   hasPassword: true,
+  emailVerified: true,
   ...over,
 });
 
@@ -88,10 +100,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [offline, setOffline] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [emailAvailable, setEmailAvailable] = useState(false);
   const googleCodes = useRef(new Map<string, Promise<void>>());
 
   useEffect(() => {
-    if (mode === "server") api.fetchProviders().then((p) => setGoogleAvailable(p.google));
+    if (mode === "server") {
+      api.fetchProviders().then((p) => {
+        setGoogleAvailable(p.google);
+        setEmailAvailable(p.email);
+      });
+    }
   }, [mode]);
 
   const cache = useCallback(async (p: Profile | null) => {
@@ -233,6 +251,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const requestPasswordReset = useCallback<SessionValue["requestPasswordReset"]>(async (email) => {
+    await api.forgotPassword(email);
+  }, []);
+
+  const resetPassword = useCallback<SessionValue["resetPassword"]>(
+    async (email, code, newPassword) => {
+      await apply(fromServer(await api.resetPassword({ email, code, newPassword })));
+      setOffline(false);
+    },
+    [apply],
+  );
+
+  const verifyEmail = useCallback<SessionValue["verifyEmail"]>(
+    async (code) => {
+      await apply(fromServer(await api.verifyEmail(code)));
+    },
+    [apply],
+  );
+
+  const resendVerification = useCallback<SessionValue["resendVerification"]>(async () => {
+    await api.resendVerification();
+  }, []);
+
   const deleteAccount = useCallback<SessionValue["deleteAccount"]>(
     async (password) => {
       await api.deleteAccount(password);
@@ -252,12 +293,36 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       googleAvailable,
       signInWithGoogle,
       completeGoogleSignIn,
+      emailAvailable,
+      requestPasswordReset,
+      resetPassword,
+      verifyEmail,
+      resendVerification,
       update,
       signOut,
       changePassword,
       deleteAccount,
     }),
-    [ready, profile, mode, offline, signIn, signUp, googleAvailable, signInWithGoogle, completeGoogleSignIn, update, signOut, changePassword, deleteAccount],
+    [
+      ready,
+      profile,
+      mode,
+      offline,
+      signIn,
+      signUp,
+      googleAvailable,
+      signInWithGoogle,
+      completeGoogleSignIn,
+      emailAvailable,
+      requestPasswordReset,
+      resetPassword,
+      verifyEmail,
+      resendVerification,
+      update,
+      signOut,
+      changePassword,
+      deleteAccount,
+    ],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

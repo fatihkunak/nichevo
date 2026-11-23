@@ -13,6 +13,11 @@ export interface Config {
    * istemcinin istediği model yok sayılır ve bu model kullanılır.
    */
   ai?: { apiKey: string; baseUrl: string; allowedEmails: string[]; model?: string; provider: string };
+  /**
+   * SMTP_URL (smtps://kullanici:parola@sunucu:465) + MAIL_FROM varsa parola sıfırlama ve e-posta doğrulama açıktır;
+   * yoksa kapalıdır (uç noktalar 503, uygulama düğmeleri göstermez).
+   */
+  mail?: { smtpUrl: string; from: string };
 }
 
 const need = (env: NodeJS.ProcessEnv, k: string): string => {
@@ -41,7 +46,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const aiBaseUrl = (env.AI_BASE_URL ?? env.EVREN_BASE_URL)?.trim() || "https://evren-llmapi.ssyz.org.tr/v1";
   const aiModel = env.AI_MODEL?.trim();
   if (aiModel && !/^[A-Za-z0-9._\/:-]{1,64}$/.test(aiModel)) throw new Error("AI_MODEL geçersiz karakter içeriyor");
+  const smtpUrl = env.SMTP_URL?.trim();
+  const mailFrom = env.MAIL_FROM?.trim();
+  if (smtpUrl && !mailFrom) throw new Error("SMTP_URL tanımlı ama MAIL_FROM yok (nichevo-backend/.env)");
+  if (smtpUrl && !/^smtps?:\/\//i.test(smtpUrl)) throw new Error("SMTP_URL smtp:// ya da smtps:// ile başlamalı");
   return {
+    mail: smtpUrl && mailFrom ? { smtpUrl, from: mailFrom } : undefined,
     ai:
       aiKey && aiAllowed.length
         ? {
