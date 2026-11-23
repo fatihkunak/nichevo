@@ -1,5 +1,7 @@
 // Nichevo ek YouTube Data API çağrıları (kanal bilgisi, trendler, yorumlar, etiketler).
 
+import type { RecentVideo } from "@/lib/insights";
+
 export interface ChannelInfo {
   id: string;
   title: string;
@@ -101,4 +103,36 @@ export const verifyYoutubeKey = async (apiKey: string): Promise<{ ok: boolean; m
   } catch (e) {
     return { ok: false, msg: "Bağlantı hatası: " + (e as Error).message };
   }
+};
+
+/**
+ * Kanalın son videoları (en yeni önce). Kanal ID'si UC... ise yüklemeler listesi UU... olur (1 + 1 kota birimi).
+ * Gizli/kapalı beğeni ya da yorum sayısı 0 sayılır. Kanal ya da liste bulunamazsa boş dizi döner.
+ */
+export const fetchRecentVideos = async (
+  channelId: string,
+  apiKey: string | null,
+  max = 10,
+): Promise<RecentVideo[]> => {
+  if (!apiKey || !/^UC[\w-]{22}$/.test(channelId)) return [];
+  const uploads = "UU" + channelId.slice(2);
+  const list = await fetch(
+    `${BASE}/playlistItems?playlistId=${uploads}&maxResults=${max}&key=${apiKey}&part=contentDetails`,
+  );
+  if (list.status === 404) return [];
+  if (!list.ok) throw new Error(`API Hatası: ${list.status}`);
+  const ids: string[] = ((await list.json()).items ?? [])
+    .map((i: any) => i.contentDetails?.videoId as string | undefined)
+    .filter((x: string | undefined): x is string => !!x);
+  if (ids.length === 0) return [];
+  const vids = await fetch(`${BASE}/videos?id=${ids.join(",")}&key=${apiKey}&part=snippet,statistics`);
+  if (!vids.ok) throw new Error(`API Hatası: ${vids.status}`);
+  return ((await vids.json()).items ?? []).map((i: any) => ({
+    id: i.id as string,
+    title: (i.snippet?.title as string) ?? "",
+    views: parseInt(i.statistics?.viewCount || "0", 10),
+    likes: parseInt(i.statistics?.likeCount || "0", 10),
+    comments: parseInt(i.statistics?.commentCount || "0", 10),
+    publishedAt: i.snippet?.publishedAt as string,
+  }));
 };
