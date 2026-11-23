@@ -102,7 +102,8 @@ Gramiq'teki düzen: `wscript` + `run-hidden.vbs` (pencere yok) + S4U (oturum aç
 **Durdurmak** (yalnız kendi sürecini): `deploy\stop.flag` dosyasını oluştur, sonra `Get-NetTCPConnection -LocalPort 3102` → `OwningProcess` sürecini durdur. Yeniden açmak için bayrağı sil ve görevi başlat. (Süreci bayraksız öldürürsen döngü 15 sn sonra yeniden başlatır; bu yeniden başlatmak için de işe yarar.)
 Not: yeniden başlatma (reboot) ile açılış henüz denenmedi.
 
-### Şifre sıfırlama (e-posta altyapısı yok)
+### Şifre sıfırlama (yedek: komut satırı)
+E-posta açıksa (aşağıya bak) kullanıcı uygulamada **Şifremi unuttum**'u kullanır. SMTP yokken ya da acil durumda yedek:
 ```bash
 npm run reset-password -- kisi@mail.com   # rastgele geçici şifreyi bir kez yazdırır, tüm oturumları kapatır
 ```
@@ -119,7 +120,7 @@ Kullanıcı girişten sonra Profil > Şifre'den değiştirir.
 
 `sound-platform-dev`, `gramiq-api`, `stedora-api` tünellerine dokunmaz. Yayın sürümü **cleartext bayrağı olmadan** ve `EXPO_PUBLIC_API_URL=https://nichevo-api.fatihgo.com` ile derlenir. **Gradle önbelleği ortam değişkenini izlemez:** adres değişince `:app:createBundleReleaseJsAndAssets --rerun` ver ve APK'daki paketi `grep -a "https://nichevo-api" assets/index.android.bundle` ile doğrula.
 Tüneli sıfırdan kurarsan: `cloudflared tunnel create nichevo-api`, sonra DNS için **`--config nichevo-api.yml` vererek** `cloudflared --config <yml> tunnel route dns -f <TÜNEL-ID> nichevo-api.scenefxai.app` (config vermezsen `~/.cloudflared/config.yml`'deki varsayılan tünel seçilir ve CNAME YANLIŞ tünele gider; günlükteki `tunnelID=` değerini kontrol et).
-Not: hesaplar herkese açık kayıt alıyor (e-posta doğrulaması yok); hız sınırı var ama istenmeyen kayıt gelirse `/v1/auth/register`'ı kapatmayı düşün.
+Not: hesaplar herkese açık kayıt alıyor; e-posta doğrulaması yumuşaktır (girişi engellemez, bkz. aşağıdaki bölüm). Hız sınırı var ama istenmeyen kayıt gelirse `/v1/auth/register`'ı kapatmayı düşün.
 
 ## Tuzaklar (scenefx'ten ders)
 - **GRANT unutma:** çalışma rolü `nichevo_app` süper kullanıcı değil; yeni tablo eklerken `002_grants.sql`'deki `DEFAULT PRIVILEGES` kapsar, yine de testte kontrol et. Test, uygulamayı bu rolle çalıştırır.
@@ -136,5 +137,9 @@ Opsiyonel. `.env`'de `SMTP_URL` (örn. `smtps://kullanici:parola@smtp.ornek.com:
 | `POST /v1/auth/reset-password` `{email, code, newPassword}` | Kod doğruysa şifreyi değiştirir, tüm oturumları kapatır, yeni oturum döner. Kod 15 dk geçerli, tek kullanımlık, 5 yanlış denemede kilitlenir |
 | `POST /v1/auth/verify-email` `{code}` (oturumlu) | E-postayı doğrulanmış yapar (`user.emailVerified`). Kayıtta kod otomatik gönderilir; doğrulama **girişi engellemez** |
 | `POST /v1/auth/resend-verification` (oturumlu) | Kodu yeniden gönderir (saatte 3) |
+
+**Nerede tutulur:** `SMTP_URL` ve `MAIL_FROM` `.env` içinde ya da ayrı `.env.mail` dosyasında olabilir (git dışı; `deploy\start-backend.cmd` ikisini de okur, `.env.mail` yoksa sorun olmaz). Bu kurulumda Brevo (`smtp-relay.brevo.com:587`, STARTTLS) kullanılıyor; anahtar süresi 1 yıl, 90 gün kullanılmazsa Brevo anahtarı kapatır. Anahtar yenilenince yalnızca `.env.mail` güncellenir.
+
+**Yeniden başlatma uyarısı:** `start-backend.cmd` dosyasını düzenledikten sonra yeniden başlatmak için yalnızca node'u öldürmek yetmez (çalışan `.cmd` dosyası değişince satır konumları kayar). Döngü betiğini (`cmd.exe ... start-backend.cmd`) ve node'u birlikte durdurup `Start-ScheduledTask NichevoApi` ile görevi başlat.
 
 Kodun kendisi veritabanında saklanmaz, yalnızca `JWT_SECRET` ile HMAC özeti. Google ile açılan hesaplar doğrulanmış sayılır ve şifresiz oldukları için sıfırlama kodu almaz.
