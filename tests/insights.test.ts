@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { channelHealth, channelScore, forecastViews, formatCount, formatMultiple, sentiment, topKeywords, topPhrases } from "../lib/insights";
+import { channelHealth, channelScore, formatPct, forecastViews, formatCount, formatMultiple, sentiment, topKeywords, topPhrases } from "../lib/insights";
 
 describe("insights", () => {
   it("formatCount kısaltır", () => {
@@ -111,5 +111,13 @@ describe("insights", () => {
       const h = channelHealth([v(3, 100), v(0, 200), v(2, 100), v(1, 200)], 1000)!;
       expect(h.trendPct).toBeCloseTo(100, 5);
     });
+  });
+
+  it("formatPct küçük oranlarda bir ondalık gösterir, büyüklerde tam sayı", () => {
+    expect(formatPct(0.2188)).toBe("%0,2");
+    expect(formatPct(4.54)).toBe("%4,5");
+    expect(formatPct(9.96)).toBe("%10");
+    expect(formatPct(42.4)).toBe("%42");
+    expect(formatPct(0)).toBe("%0");
   });
 });

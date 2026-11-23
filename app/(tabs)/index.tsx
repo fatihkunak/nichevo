@@ -12,6 +12,7 @@ import {
   channelHealth,
   channelScore,
   formatCount,
+  formatPct,
   type RecentVideo,
   topKeywords,
   topPhrases,
@@ -145,13 +146,13 @@ export default function DashboardScreen() {
               <Stat label="Medyan" value={formatCount(Math.round(health.medianViews))} />
               <Stat
                 label="Abone başına"
-                value={channel && channel.subs > 0 ? `%${Math.round(health.viewsPerSubPct)}` : "—"}
+                value={channel && channel.subs > 0 ? formatPct(health.viewsPerSubPct) : "—"}
               />
               <Stat
                 label="Yükleme"
                 value={health.uploadsPerMonth === null ? "—" : `~${Math.round(health.uploadsPerMonth)}/ay`}
               />
-              <Stat label="Etkileşim" value={`%${health.engagementPct.toFixed(1).replace(".", ",")}`} />
+              <Stat label="Etkileşim" value={formatPct(health.engagementPct)} />
               <Stat
                 label="Eğilim"
                 value={health.trendPct === null ? "—" : `${health.trendPct >= 0 ? "▲ +" : "▼ "}${Math.round(health.trendPct)}%`}

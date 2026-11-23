@@ -41,6 +41,14 @@ export function channelScore(c: { subs: number; views: number; videos: number })
   return Math.round((reach * 0.5 + authority * 0.3 + consistency * 0.2) * 100);
 }
 
+/** Yüzde biçimi: 10'dan küçükse bir ondalık (virgüllü), değilse tam sayı. 0.2188 -> "%0,2". */
+export function formatPct(pct: number): string {
+  if (pct <= 0) return "%0";
+  const rounded = Math.round(pct * 10) / 10;
+  if (rounded < 10) return "%" + rounded.toFixed(1).replace(".", ",");
+  return "%" + Math.round(pct);
+}
+
 export interface RecentVideo {
   id: string;
   title: string;
