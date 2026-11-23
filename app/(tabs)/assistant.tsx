@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from "react-native";
 
 import { Chip, ScreenHeader } from "@/components/nv";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { ASSISTANT_SYSTEM, aiChat, aiStatus, type ChatTurn } from "@/lib/ai";
+import { buildChannelSystem } from "@/lib/channel-context";
+import { channelHealth, type RecentVideo } from "@/lib/insights";
+import { useSession } from "@/lib/session";
 import { loadSocialDigest } from "@/lib/social";
 import { buildSocialSystem } from "@/lib/social-format";
 import { bumpUsage } from "@/lib/usage";
+import { loadYoutubeApiKey } from "@/lib/youtube-api";
+import { fetchChannelInfo, fetchRecentVideos, type ChannelInfo } from "@/lib/youtube-extras";
 
 const QUICK = [
   "Bu video için başlık önerir misin?",
@@ -21,12 +26,16 @@ const SOCIAL_QUICK = [
   "Bu verilere göre hangi hashtag'leri kullanmalıyım?",
 ];
 
+// Bağlı kanal verisi varsa gösterilen ek soru
+const CHANNEL_QUICK = ["Son videolarım nasıl gidiyor?"];
+
 // Modeller Markdown döndürür; düz Text bileşeni için işaretleri temizle
 const plain = (s: string) =>
   s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1");
 
 export default function AssistantScreen() {
   const colors = useColors();
+  const { profile } = useSession();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,6 +43,32 @@ export default function AssistantScreen() {
   // Sosyal veri: sunucuda takip/trend verisi varsa asistan onu okuyabilir (kapatılabilir)
   const [hasSocial, setHasSocial] = useState(false);
   const [socialOn, setSocialOn] = useState(true);
+  // Kanal verisi: profilde kanal bağlıysa son videolar asistana bağlam olur (kapatılabilir)
+  const [channel, setChannel] = useState<ChannelInfo | null>(null);
+  const [recent, setRecent] = useState<RecentVideo[]>([]);
+  const [channelOn, setChannelOn] = useState(true);
+  const channelInput = useMemo(
+    () => (channel ? { channel, recent, health: channelHealth(recent, channel.subs) } : null),
+    [channel, recent],
+  );
+
+  useEffect(() => {
+    if (!profile?.channelId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const key = await loadYoutubeApiKey();
+        const c = await fetchChannelInfo(profile.channelId, key);
+        if (!alive || !c) return;
+        setChannel(c);
+        const r = await fetchRecentVideos(c.id, key, 10);
+        if (alive) setRecent(r);
+      } catch {}
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [profile?.channelId]);
 
   useEffect(() => {
     let alive = true;
@@ -60,7 +95,8 @@ export default function AssistantScreen() {
     setBusy(true);
     try {
       const digest = socialOn ? await loadSocialDigest() : null;
-      const reply = await aiChat(buildSocialSystem(ASSISTANT_SYSTEM, digest), next);
+      const system = buildSocialSystem(buildChannelSystem(ASSISTANT_SYSTEM, channelOn ? channelInput : null), digest);
+      const reply = await aiChat(system, next);
       setTurns([...next, { role: "model", text: reply }]);
       bumpUsage("chats");
     } catch (e) {
@@ -88,13 +124,18 @@ export default function AssistantScreen() {
               <View className="mb-2">
                 <Text className="text-muted text-[12px] mb-2">Hızlı sorular</Text>
                 <View className="flex-row flex-wrap">
-                  {[...QUICK, ...(hasSocial && socialOn ? SOCIAL_QUICK : [])].map((q) => (
+                  {[...QUICK, ...(channelInput && channelOn ? CHANNEL_QUICK : []), ...(hasSocial && socialOn ? SOCIAL_QUICK : [])].map((q) => (
                     <Chip key={q} label={q} onPress={() => send(q)} />
                   ))}
                 </View>
-                {hasSocial ? (
-                  <View className="flex-row mt-1">
-                    <Chip label={socialOn ? "Sosyal veri: açık" : "Sosyal veri: kapalı"} active={socialOn} onPress={() => setSocialOn((v) => !v)} />
+                {hasSocial || channelInput ? (
+                  <View className="flex-row flex-wrap mt-1">
+                    {hasSocial ? (
+                      <Chip label={socialOn ? "Sosyal veri: açık" : "Sosyal veri: kapalı"} active={socialOn} onPress={() => setSocialOn((v) => !v)} />
+                    ) : null}
+                    {channelInput ? (
+                      <Chip label={channelOn ? "Kanal verisi: açık" : "Kanal verisi: kapalı"} active={channelOn} onPress={() => setChannelOn((v) => !v)} />
+                    ) : null}
                   </View>
                 ) : null}
               </View>
