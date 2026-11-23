@@ -58,7 +58,13 @@ export default function DashboardScreen() {
       } catch (e) {
         if (alive) setNote("Trendler alınamadı: " + (e as Error).message);
       }
-      if (profile?.channelId) {
+      if (!profile?.channelId) {
+        // Kanal bağlantısı kaldırıldıysa eski kanal verisi ekranda kalmasın
+        if (alive) {
+          setChannel(null);
+          setRecent([]);
+        }
+      } else {
         try {
           const c = await fetchChannelInfo(profile.channelId, key);
           if (alive) setChannel(c);

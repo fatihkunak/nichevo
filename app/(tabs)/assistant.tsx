@@ -53,7 +53,12 @@ export default function AssistantScreen() {
   );
 
   useEffect(() => {
-    if (!profile?.channelId) return;
+    if (!profile?.channelId) {
+      // Kanal bağlantısı kaldırıldıysa eski kanal bağlamı asistanda kalmasın
+      setChannel(null);
+      setRecent([]);
+      return;
+    }
     let alive = true;
     (async () => {
       try {
