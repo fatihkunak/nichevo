@@ -191,12 +191,13 @@ export async function resendVerification() {
 // --- Google ile giriş (sunucu tarafı kod akışı) ---
 export type Providers = { google: boolean; email: boolean };
 
-export const fetchProviders = async (): Promise<Providers> => {
+/** Sunucunun açık özellikleri. Ağ/sunucu hatasında `null`: çağıran eski değeri korur (geçici kopma düğmeleri gizlemesin). */
+export const fetchProviders = async (): Promise<Providers | null> => {
   try {
     const p = await raw<Partial<Providers>>("/v1/auth/providers", { method: "GET" });
     return { google: p.google === true, email: p.email === true };
   } catch {
-    return { google: false, email: false };
+    return null;
   }
 };
 

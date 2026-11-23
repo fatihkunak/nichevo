@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform } from "react-native";
+import { Alert, AppState, Platform } from "react-native";
 
 import * as api from "@/lib/api";
 
@@ -103,14 +103,26 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [emailAvailable, setEmailAvailable] = useState(false);
   const googleCodes = useRef(new Map<string, Promise<void>>());
 
+  // Sunucuda özellikler sonradan açılabilir (örn. e-posta): açılışta, çıkış yapınca ve uygulama öne gelince yeniden sor
+  const signedOut = profile === null;
   useEffect(() => {
-    if (mode === "server") {
+    if (mode !== "server") return;
+    let alive = true;
+    const load = () =>
       api.fetchProviders().then((p) => {
+        if (!alive || !p) return; // hata: eski değer kalsın
         setGoogleAvailable(p.google);
         setEmailAvailable(p.email);
       });
-    }
-  }, [mode]);
+    load();
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") load();
+    });
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, [mode, signedOut]);
 
   const cache = useCallback(async (p: Profile | null) => {
     try {
