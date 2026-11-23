@@ -2,6 +2,7 @@ import pg from "pg";
 
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { createSmtpMailer } from "./mailer.js";
 import { PlaywrightDriver } from "./social/driver.js";
 import { SocialService } from "./social/service.js";
 
@@ -12,8 +13,11 @@ const pool = new pg.Pool({ connectionString: cfg.databaseUrl, max: 10 });
 const driver = cfg.social ? new PlaywrightDriver({ profilesDir: cfg.social.profilesDir, channel: cfg.social.channel }) : null;
 const social = cfg.social && driver ? { service: new SocialService(pool, driver), allowedEmails: cfg.social.allowedEmails } : undefined;
 
+const mailer = cfg.mail ? createSmtpMailer({ url: cfg.mail.smtpUrl, from: cfg.mail.from }) : undefined;
+
 const app = buildApp({ pool, jwtSecret: cfg.jwtSecret, logger: true, google: cfg.google,
   social,
+  mailer,
   ai: cfg.ai ? { config: { apiKey: cfg.ai.apiKey, baseUrl: cfg.ai.baseUrl, model: cfg.ai.model, provider: cfg.ai.provider }, allowedEmails: cfg.ai.allowedEmails } : undefined,
 });
 

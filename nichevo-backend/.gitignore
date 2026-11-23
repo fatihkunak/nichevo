@@ -6,3 +6,7 @@ node_modules/
 
 # Sosyal tarama: test hesaplarının tarayıcı oturumu (çerezler) — ASLA repoya girmez
 .social-profile/
+
+# Node derleme önbelleği (bir zamanlanmış görev yanlışlıkla commit'lemişti)
+AhF7yYXPV3La8fRX/
+node-compile-cache/
