@@ -47,7 +47,7 @@ export default function TabLayout() {
           name={t.name}
           options={{
             title: t.title,
-            tabBarIcon: ({ color }) => <MaterialIcons name={t.icon} size={24} color={color} />,
+            tabBarIcon: ({ color }) => <MaterialIcons name={t.icon} size={24} color={color as string} />,
           }}
         />
       ))}

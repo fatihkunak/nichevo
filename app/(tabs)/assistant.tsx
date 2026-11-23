@@ -98,7 +98,7 @@ export default function AssistantScreen() {
                   </View>
                 ) : null}
               </View>
-            ) : null
+            ) : undefined
           }
           renderItem={({ item }) => (
             <View
@@ -114,7 +114,7 @@ export default function AssistantScreen() {
               <Text className="text-foreground text-[14px]">{item.role === "model" ? plain(item.text) : item.text}</Text>
             </View>
           )}
-          ListFooterComponent={busy ? <Text className="text-muted text-[12px] mb-2">Yazıyor…</Text> : null}
+          ListFooterComponent={busy ? <Text className="text-muted text-[12px] mb-2">Yazıyor…</Text> : undefined}
         />
         <View
           className="flex-row items-center rounded-full border px-3 mb-2"
